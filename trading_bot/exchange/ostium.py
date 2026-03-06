@@ -102,6 +102,7 @@ class OstiumExchange:
         self.sdk: Optional[Any] = None
         self.connected = False
         self.trader_address: Optional[str] = None
+        self._loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()
 
         # Position tracking
         self.positions: List[OstiumPosition] = []
@@ -323,13 +324,12 @@ class OstiumExchange:
 
     def update_price(self):
         """Update price (called by trading engine)"""
+        if not hasattr(self, "_last_successful_price"):
+            self._last_successful_price = float(getattr(self, "current_price", 2650.0))
+
         updated = False
         try:
-            loop = asyncio.new_event_loop()
-            try:
-                price = loop.run_until_complete(self.get_price("XAUUSD"))
-            finally:
-                loop.close()
+            price = self._loop.run_until_complete(self.get_price("XAUUSD"))
 
             if price and price > 0:
                 self.current_price = float(price)
@@ -353,18 +353,20 @@ class OstiumExchange:
                 ) * position.size
 
         # Update PnL from SDK metrics for accuracy
-        asyncio.run(self._update_position_pnls_from_sdk())
+        self._loop.run_until_complete(self._update_position_pnls_from_sdk())
 
     async def _update_position_pnls_from_sdk(self):
-        if not self.sdk or not self.trader_address:
+        sdk = getattr(self, "sdk", None)
+        trader_address = getattr(self, "trader_address", None)
+        if not sdk or not trader_address:
             return
 
         for position in getattr(self, "positions", []):
             try:
-                metrics = await self.sdk.get_open_trade_metrics(
+                metrics = await sdk.get_open_trade_metrics(
                     pair_id=position.pair_id,
                     trade_index=position.trade_index,
-                    trader_address=self.trader_address,
+                    trader_address=trader_address,
                 )
                 if metrics and isinstance(metrics, dict):
                     position.unrealized_pnl = float(
@@ -789,6 +791,8 @@ class OstiumExchange:
         }
 
     def close(self):
+        if hasattr(self, "_loop") and not self._loop.is_closed():
+            self._loop.close()
         self.connected = False
 
     async def request_testnet_tokens(self) -> bool:
