@@ -16,6 +16,7 @@ from trading_bot.exchange.bybit_exchange import BybitExchange, create_bybit_exch
 from trading_bot.strategy.xau_hedging import XAUHedgingStrategy, XAUHedgingConfig
 from trading_bot.interface.base import InterfaceConfig
 from trading_bot.risk.circuit_breaker import CircuitBreaker, CircuitBreakerError
+from trading_bot.risk.manager import RiskManager
 
 # Type alias for exchanges
 ExchangeType = Union[SimulatorExchange, OstiumExchange, ExnessExchange, BybitExchange]
@@ -70,6 +71,7 @@ class TradingEngine:
         self.circuit_breaker = CircuitBreaker(
             failure_threshold=5, recovery_timeout=60.0, name="exchange_api"
         )
+        self.risk_manager: Optional[RiskManager] = None
 
         # Metrics
         self.metrics = TradingMetrics()
@@ -288,6 +290,14 @@ class TradingEngine:
 
             # Execute signal
             if signal and signal.get("action") == "open":
+                # Risk check before execution
+                if self.risk_manager:
+                    can_trade, reason = self.risk_manager.check(self.metrics.equity)
+                    if not can_trade:
+                        if self.interface:
+                            self.interface.log(f"Risk blocked: {reason}", "warn")
+                        return
+
                 side_val = signal["side"]
                 side = side_val.value if hasattr(side_val, "value") else side_val
 
