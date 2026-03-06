@@ -113,6 +113,7 @@ class OstiumExchange:
         self.equity: float = 0.0
         self.current_price: float = 2650.0
         self._subgraph_warned: bool = False
+        self._sdk_price_failed: bool = False
         self._last_synced_position_count: Optional[int] = None
 
         # Initialize SDK
@@ -235,7 +236,44 @@ class OstiumExchange:
     async def get_price(self, symbol: str = "XAUUSD") -> float:
         """Get current price from Ostium oracle"""
         if not self.sdk:
-            # Fallback to static prices
+            metadata_price = self._get_metadata_price(symbol)
+            if metadata_price is not None:
+                self.current_price = metadata_price
+                return metadata_price
+            return self._get_static_price(symbol)
+
+        try:
+            pair_info = ASSET_PAIRS.get(symbol, ASSET_PAIRS["XAUUSD"])
+            base = pair_info["base"]
+            quote = pair_info["quote"]
+
+            price, _, _ = await self.sdk.price.get_price(base, quote)
+            self.current_price = float(price)
+            self._sdk_price_failed = False
+            return self.current_price
+
+        except Exception as e:
+            error_str = str(e).lower()
+            is_dns_error = any(
+                x in error_str
+                for x in [
+                    "dns",
+                    "cannot connect to host",
+                    "could not contact",
+                    "failed to create dns resolver",
+                    "c-ares",
+                ]
+            )
+
+            if is_dns_error:
+                if not self._sdk_price_failed:
+                    logger.warning(
+                        f"SDK price fetch failed (DNS/network), using fallback: {e}"
+                    )
+                    self._sdk_price_failed = True
+            else:
+                logger.error(f"Price error: {e}")
+
             metadata_price = self._get_metadata_price(symbol)
             if metadata_price is not None:
                 self.current_price = metadata_price
@@ -250,10 +288,33 @@ class OstiumExchange:
             # Get price from SDK
             price, _, _ = await self.sdk.price.get_price(base, quote)
             self.current_price = float(price)
+            self._sdk_price_failed = False  # Reset flag on success
             return self.current_price
 
         except Exception as e:
-            logger.error(f"Price error: {e}")
+            error_str = str(e).lower()
+            # Check for DNS/network errors
+            is_dns_error = any(
+                x in error_str
+                for x in [
+                    "dns",
+                    "cannot connect to host",
+                    "could not contact",
+                    "failed to create dns resolver",
+                    "c-ares",
+                ]
+            )
+
+            if is_dns_error:
+                if not self._sdk_price_failed:
+                    logger.warning(
+                        f"SDK price fetch failed (DNS/network), using fallback: {e}"
+                    )
+                    self._sdk_price_failed = True
+            else:
+                logger.error(f"Price error: {e}")
+
+            # Try metadata API first
             metadata_price = self._get_metadata_price(symbol)
             if metadata_price is not None:
                 self.current_price = metadata_price
