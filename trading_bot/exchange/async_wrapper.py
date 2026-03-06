@@ -38,11 +38,15 @@ class AsyncExchangeWrapper(AsyncExchange):
             symbol: Trading symbol (e.g., "XAUUSD")
 
         Returns:
-            Mid-price as average of bid and ask
+            Mid-price (average of bid/ask if tuple, direct price if float)
         """
         loop = asyncio.get_event_loop()
-        bid, ask = await loop.run_in_executor(self._executor, self._sync.get_price)
-        return (bid + ask) / 2
+        result = await loop.run_in_executor(self._executor, self._sync.get_price)
+        # Handle both tuple (bid, ask) and float return types
+        if isinstance(result, tuple):
+            bid, ask = result
+            return (bid + ask) / 2
+        return float(result)
 
     async def get_positions(self, symbol: Optional[str] = None) -> List[Position]:
         """Get open positions, optionally filtered by symbol.
@@ -68,10 +72,11 @@ class AsyncExchangeWrapper(AsyncExchange):
             Total account balance
         """
         loop = asyncio.get_event_loop()
-        balance: Balance = await loop.run_in_executor(
-            self._executor, self._sync.get_balance
-        )
-        return balance.total
+        result = await loop.run_in_executor(self._executor, self._sync.get_balance)
+        # Handle both Balance object and direct float/int return
+        if hasattr(result, "total"):
+            return float(result.total)
+        return float(result)
 
     async def open_position(
         self,
