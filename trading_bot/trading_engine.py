@@ -322,6 +322,72 @@ class TradingEngine:
             if self.interface:
                 self.interface.log(f"Update error: {e}", "error")
 
+    async def _async_update(self):
+        """Update using parallel async fetch for improved performance."""
+        try:
+            if not self.exchange or not self.strategy:
+                return
+
+            from trading_bot.exchange.async_wrapper import AsyncExchangeWrapper
+            from trading_bot.exchange.base import Exchange
+
+            sync_exchange = self.exchange
+            if asyncio.iscoroutinefunction(getattr(sync_exchange, "get_price", None)):
+                async_exchange = sync_exchange
+            else:
+                async_exchange = AsyncExchangeWrapper(sync_exchange)  # type: ignore
+
+            price, positions = await asyncio.gather(
+                async_exchange.get_price(self.config.symbol),
+                async_exchange.get_positions(self.config.symbol),
+            )
+
+            self.metrics.price = price
+            self.metrics.positions = positions or []
+
+            bid = self.metrics.price - 0.02
+            ask = self.metrics.price + 0.02
+            signal = self.strategy.on_tick(
+                self.metrics.price, bid, ask, self.metrics.positions or []
+            )
+
+            if signal and signal.get("action") == "open":
+                side_val = signal["side"]
+                side = side_val.value if hasattr(side_val, "value") else side_val
+
+                pos_id = await async_exchange.open_position(
+                    symbol=self.config.symbol,
+                    side=side,
+                    amount=signal["amount"],
+                    sl=signal.get("sl"),
+                    tp=signal.get("tp"),
+                )
+
+                if pos_id:
+                    self.metrics.trades += 1
+                    sl = signal.get("sl", 0)
+                    tp = signal.get("tp", 0)
+                    sl_tp_info = f" SL:{sl:.2f} TP:{tp:.2f}" if sl or tp else ""
+
+                    if self.interface:
+                        self.interface.log(
+                            f"📈 {side.upper()} {signal['amount']} @ {self.metrics.price:.2f}{sl_tp_info}",
+                            "trade",
+                        )
+
+            if hasattr(self.exchange, "get_stats"):
+                stats = self.exchange.get_stats()
+                self.metrics.balance = stats.get("balance", self.metrics.balance)
+                self.metrics.equity = stats.get("equity", self.metrics.equity)
+                self.metrics.pnl = stats.get("net_pnl", 0)
+
+            if self.interface:
+                self.interface.update_metrics(self.metrics.to_dict())
+
+        except Exception as e:
+            if self.interface:
+                self.interface.log(f"Async update error: {e}", "error")
+
     def stop(self):
         """Stop trading"""
         if self._stopped:
