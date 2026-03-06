@@ -5,12 +5,62 @@ Direct integration dengan Exness Web Terminal API berdasarkan traced data.
 
 import requests
 import time
+import functools
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from dataclasses import dataclass
 
 from trading_bot.core.models import Position, Order
 from trading_bot.core.interfaces import Exchange
+
+
+def retry_with_backoff(max_retries=3, backoff_factor=1.0, retry_codes=(429, 503, 502)):
+    """
+    Decorator for retrying API calls with exponential backoff.
+
+    Args:
+        max_retries: Maximum number of retry attempts
+        backoff_factor: Base delay between retries (will be multiplied by 2^attempt)
+        retry_codes: HTTP status codes that trigger a retry
+    """
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except requests.exceptions.HTTPError as e:
+                    last_exception = e
+                    if hasattr(e.response, "status_code"):
+                        status_code = e.response.status_code
+                        if status_code in retry_codes:
+                            sleep_time = backoff_factor * (2**attempt)
+                            print(
+                                f"⚠️ Rate limited (HTTP {status_code}). Retrying in {sleep_time}s... (attempt {attempt + 1}/{max_retries})"
+                            )
+                            time.sleep(sleep_time)
+                            continue
+                    raise
+                except requests.exceptions.RequestException as e:
+                    last_exception = e
+                    if attempt < max_retries - 1:
+                        sleep_time = backoff_factor * (2**attempt)
+                        print(
+                            f"⚠️ Request failed: {e}. Retrying in {sleep_time}s... (attempt {attempt + 1}/{max_retries})"
+                        )
+                        time.sleep(sleep_time)
+                        continue
+                    raise
+            # If we've exhausted all retries, raise the last exception
+            if last_exception:
+                raise last_exception
+            return None
+
+        return wrapper
+
+    return decorator
 
 
 @dataclass
@@ -55,6 +105,25 @@ class ExnessWebProvider(Exchange):
         self.session = requests.Session()
         self._update_headers()
 
+        # Request caching to reduce API calls
+        self._cache: Dict[str, Any] = {}
+        self._cache_timestamps: Dict[str, float] = {}
+        self._cache_ttl = {
+            "balance": 1.0,  # 1 second for balance
+            "equity": 1.0,  # 1 second for equity
+            "positions": 0.5,  # 0.5 seconds for positions
+            "price": 0.5,  # 0.5 seconds for price
+            "account_info": 5.0,  # 5 seconds for account info
+            "margin": 1.0,  # 1 second for margin
+        }
+
+        # Rate limiting tracking
+        self._last_request_time = 0.0
+        self._min_request_interval = 0.1  # Minimum 100ms between requests
+        self._requests_in_last_second = 0
+        self._last_second_reset = time.time()
+        self._max_requests_per_second = 10  # Max 10 requests per second
+
     def _update_headers(self):
         """Set authentication headers"""
         self.session.headers.update(
@@ -67,6 +136,47 @@ class ExnessWebProvider(Exchange):
             }
         )
 
+    def _enforce_rate_limit(self):
+        """Enforce rate limiting between requests."""
+        current_time = time.time()
+
+        # Reset counter every second
+        if current_time - self._last_second_reset >= 1.0:
+            self._requests_in_last_second = 0
+            self._last_second_reset = current_time
+
+        # Check if we're exceeding max requests per second
+        if self._requests_in_last_second >= self._max_requests_per_second:
+            sleep_time = 1.0 - (current_time - self._last_second_reset)
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+            self._requests_in_last_second = 0
+            self._last_second_reset = time.time()
+
+        # Enforce minimum interval between requests
+        time_since_last = current_time - self._last_request_time
+        if time_since_last < self._min_request_interval:
+            time.sleep(self._min_request_interval - time_since_last)
+
+        self._last_request_time = time.time()
+        self._requests_in_last_second += 1
+
+    def _get_cached(self, cache_key: str) -> Any:
+        """Get value from cache if still valid."""
+        if cache_key not in self._cache:
+            return None
+
+        ttl = self._cache_ttl.get(cache_key, 1.0)
+        if time.time() - self._cache_timestamps.get(cache_key, 0) > ttl:
+            return None
+
+        return self._cache[cache_key]
+
+    def _set_cached(self, cache_key: str, value: Any):
+        """Store value in cache with timestamp."""
+        self._cache[cache_key] = value
+        self._cache_timestamps[cache_key] = time.time()
+
     def _get_base_url(self) -> str:
         """Get base URL for account"""
         return f"{self.config.base_url}/{self.config.server}/v1/accounts/{self.config.account_id}"
@@ -77,9 +187,11 @@ class ExnessWebProvider(Exchange):
 
     # ==================== Exchange Interface ====================
 
+    @retry_with_backoff(max_retries=3, backoff_factor=1.0)
     def connect(self) -> bool:
         """Test connection by fetching account info"""
         try:
+            self._enforce_rate_limit()
             response = self.session.get(f"{self._get_base_url()}/server")
             response.raise_for_status()
             data = response.json()
@@ -89,31 +201,54 @@ class ExnessWebProvider(Exchange):
             print(f"❌ Connection failed: {e}")
             return False
 
+    @retry_with_backoff(max_retries=3, backoff_factor=1.0)
     def get_balance(self) -> float:
-        """Get account balance"""
+        """Get account balance with caching"""
+        cached = self._get_cached("balance")
+        if cached is not None:
+            return cached
+
         try:
+            self._enforce_rate_limit()
             response = self.session.get(f"{self._get_base_url()}/balance")
             response.raise_for_status()
             data = response.json()
-            return float(data.get("balance", 0))
+            balance = float(data.get("balance", 0))
+            self._set_cached("balance", balance)
+            return balance
         except Exception as e:
             print(f"Error getting balance: {e}")
             return 0.0
 
+    @retry_with_backoff(max_retries=3, backoff_factor=1.0)
     def get_equity(self) -> float:
-        """Get account equity"""
+        """Get account equity with caching"""
+        cached = self._get_cached("equity")
+        if cached is not None:
+            return cached
+
         try:
+            self._enforce_rate_limit()
             response = self.session.get(f"{self._get_base_url()}/balance")
             response.raise_for_status()
             data = response.json()
-            return float(data.get("equity", 0))
+            equity = float(data.get("equity", 0))
+            self._set_cached("equity", equity)
+            return equity
         except Exception as e:
             print(f"Error getting equity: {e}")
             return 0.0
 
+    @retry_with_backoff(max_retries=3, backoff_factor=1.0)
     def get_positions(self, symbol: Optional[str] = None) -> List[Position]:
-        """Get open positions"""
+        """Get open positions with caching"""
+        cache_key = f"positions_{symbol or 'all'}"
+        cached = self._get_cached(cache_key)
+        if cached is not None:
+            return cached
+
         try:
+            self._enforce_rate_limit()
             response = self.session.get(f"{self._get_base_url()}/positions")
             response.raise_for_status()
             data = response.json()
@@ -136,6 +271,7 @@ class ExnessWebProvider(Exchange):
                         open_time=pos.get("open_time", 0),
                     )
                 )
+            self._set_cached(cache_key, positions)
             return positions
         except Exception as e:
             print(f"Error getting positions: {e}")
@@ -166,9 +302,11 @@ class ExnessWebProvider(Exchange):
             tp=tp,
         )
 
+    @retry_with_backoff(max_retries=3, backoff_factor=1.0)
     def close_position(self, position_id: str, symbol: Optional[str] = None) -> bool:
         """Close position by ID"""
         try:
+            self._enforce_rate_limit()
             # Exness uses order to close position
             # Position ID is the ticket to close
             url = f"{self._get_base_url()}/positions/{position_id}"
@@ -179,9 +317,11 @@ class ExnessWebProvider(Exchange):
             print(f"Error closing position {position_id}: {e}")
             return False
 
+    @retry_with_backoff(max_retries=3, backoff_factor=1.0)
     def modify_position(self, ticket: str, sl: float = None, tp: float = None) -> bool:
         """Modify position SL/TP (implements Exchange interface)"""
         try:
+            self._enforce_rate_limit()
             url = f"{self._get_base_url()}/positions/{ticket}"
             payload = {}
             if sl is not None:
@@ -199,13 +339,22 @@ class ExnessWebProvider(Exchange):
     # Alias for backward compatibility
     modify_position_sl = modify_position
 
+    @retry_with_backoff(max_retries=3, backoff_factor=1.0)
     def get_price(self, symbol: str) -> float:
-        """Get current price for symbol"""
+        """Get current price for symbol with caching"""
+        cache_key = f"price_{symbol}"
+        cached = self._get_cached(cache_key)
+        if cached is not None:
+            return cached
+
         try:
+            self._enforce_rate_limit()
             # Get latest candle as price reference
             candles = self.get_candles(symbol, timeframe="1m", limit=1)
             if candles:
-                return candles[-1]["close"]
+                price = candles[-1]["close"]
+                self._set_cached(cache_key, price)
+                return price
             return 0.0
         except Exception as e:
             print(f"Error getting price: {e}")
@@ -213,6 +362,7 @@ class ExnessWebProvider(Exchange):
 
     # ==================== Extended Methods ====================
 
+    @retry_with_backoff(max_retries=3, backoff_factor=1.0)
     def _place_order(
         self,
         symbol: str,
@@ -225,6 +375,7 @@ class ExnessWebProvider(Exchange):
     ) -> Optional[str]:
         """Place order with Exness API"""
         try:
+            self._enforce_rate_limit()
             url = f"{self._get_base_url()}/orders"
 
             order_data = {
@@ -264,6 +415,7 @@ class ExnessWebProvider(Exchange):
                 print(f"Response: {e.response.text}")
             return None
 
+    @retry_with_backoff(max_retries=3, backoff_factor=1.0)
     def get_candles(
         self,
         symbol: str,
@@ -272,17 +424,9 @@ class ExnessWebProvider(Exchange):
         price_type: str = "bid",
         from_time: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
-        """
-        Get candlestick data
-
-        Args:
-            symbol: Trading pair (e.g., XAUUSDm)
-            timeframe: 1m, 5m, 15m, 30m, 1h, 4h, 1d
-            limit: Number of candles (max ~1000)
-            price_type: bid or ask
-            from_time: Timestamp in milliseconds to fetch from (default: latest)
-        """
+        """Get candlestick data with retry and rate limiting"""
         try:
+            self._enforce_rate_limit()
             tf_value = self.TIMEFRAMES.get(timeframe, 1)
 
             # Use v2 API for candles
@@ -387,9 +531,11 @@ class ExnessWebProvider(Exchange):
 
         return unique
 
+    @retry_with_backoff(max_retries=3, backoff_factor=1.0)
     def get_instruments(self) -> List[Dict[str, Any]]:
-        """Get available trading instruments"""
+        """Get available trading instruments with retry"""
         try:
+            self._enforce_rate_limit()
             response = self.session.get(f"{self._get_base_url()}/instruments")
             response.raise_for_status()
             data = response.json()
@@ -398,14 +544,21 @@ class ExnessWebProvider(Exchange):
             print(f"Error getting instruments: {e}")
             return []
 
+    @retry_with_backoff(max_retries=3, backoff_factor=1.0)
     def get_account_info(self) -> Dict[str, Any]:
-        """Get detailed account information"""
+        """Get detailed account information with caching"""
+        cached = self._get_cached("account_info")
+        if cached is not None:
+            return cached
+
         try:
+            self._enforce_rate_limit()
             # Get balance info
             balance_resp = self.session.get(f"{self._get_base_url()}/balance")
             balance_resp.raise_for_status()
             balance_data = balance_resp.json()
 
+            self._enforce_rate_limit()
             # Get account/server info for leverage
             server_resp = self.session.get(f"{self._get_base_url()}/server")
             server_data = {}
@@ -423,7 +576,6 @@ class ExnessWebProvider(Exchange):
                 balance_val = float(balance_data.get("balance", 0))
                 margin_val = float(balance_data.get("margin", 0))
                 if margin_val > 0 and balance_val > 0:
-                    # Approximate leverage
                     leverage = int(balance_val / margin_val * 100)
 
             # Default leverage if still 0
@@ -431,7 +583,7 @@ class ExnessWebProvider(Exchange):
                 leverage = 200  # Default reasonable value
 
             # Normalize the response to match expected format
-            return {
+            result = {
                 "login": self.config.account_id,
                 "balance": float(balance_data.get("balance", 0)),
                 "equity": float(balance_data.get("equity", 0)),
@@ -448,6 +600,8 @@ class ExnessWebProvider(Exchange):
                 "raw_balance": balance_data,
                 "raw_server": server_data,
             }
+            self._set_cached("account_info", result)
+            return result
         except Exception as e:
             print(f"Error getting account info: {e}")
             # Return defaults
@@ -462,19 +616,27 @@ class ExnessWebProvider(Exchange):
                 "server": self.config.server,
             }
 
+    @retry_with_backoff(max_retries=3, backoff_factor=1.0)
     def get_margin_info(self) -> Dict[str, float]:
-        """Get margin information"""
+        """Get margin information with caching"""
+        cached = self._get_cached("margin")
+        if cached is not None:
+            return cached
+
         try:
+            self._enforce_rate_limit()
             response = self.session.get(f"{self._get_base_url()}/balance")
             response.raise_for_status()
             data = response.json()
-            return {
+            result = {
                 "balance": float(data.get("balance", 0)),
                 "equity": float(data.get("equity", 0)),
                 "margin": float(data.get("margin", 0)),
                 "free_margin": float(data.get("free_margin", 0)),
                 "margin_level": float(data.get("margin_level", 0)),
             }
+            self._set_cached("margin", result)
+            return result
         except Exception as e:
             print(f"Error getting margin info: {e}")
             return {}

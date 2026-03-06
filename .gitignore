@@ -69,6 +69,11 @@ logs/
 *.trade
 *.session
 
+# Backtest and optimization results
+backtest_results/
+optimization_results/
+test_results/
+
 # Temporary files
 tmp/
 temp/
