@@ -15,6 +15,7 @@ from trading_bot.exchange.exness_exchange import ExnessExchange, create_exness_e
 from trading_bot.exchange.bybit_exchange import BybitExchange, create_bybit_exchange
 from trading_bot.strategy.xau_hedging import XAUHedgingStrategy, XAUHedgingConfig
 from trading_bot.interface.base import InterfaceConfig
+from trading_bot.risk.circuit_breaker import CircuitBreaker, CircuitBreakerError
 
 # Type alias for exchanges
 ExchangeType = Union[SimulatorExchange, OstiumExchange, ExnessExchange, BybitExchange]
@@ -64,6 +65,11 @@ class TradingEngine:
         # Trading components
         self.exchange: Optional[ExchangeType] = None
         self.strategy: Optional[XAUHedgingStrategy] = None
+
+        # Risk management
+        self.circuit_breaker = CircuitBreaker(
+            failure_threshold=5, recovery_timeout=60.0, name="exchange_api"
+        )
 
         # Metrics
         self.metrics = TradingMetrics()
@@ -245,8 +251,24 @@ class TradingEngine:
             if not self.exchange or not self.strategy:
                 return
 
+            # Check circuit breaker
+            if not self.circuit_breaker.can_execute():
+                if self.interface:
+                    self.interface.log(
+                        f"Circuit breaker OPEN (failures: {self.circuit_breaker.stats.failures})",
+                        "warn",
+                    )
+                return
+
             # Update price
-            self.exchange.update_price()
+            try:
+                self.exchange.update_price()
+                self.circuit_breaker.record_success()
+            except Exception as e:
+                self.circuit_breaker.record_failure()
+                if self.interface:
+                    self.interface.log(f"Price update failed: {e}", "error")
+                return
 
             # Handle different exchange types
             if isinstance(self.exchange, OstiumExchange):
