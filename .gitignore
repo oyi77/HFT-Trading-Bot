@@ -1,0 +1,75 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Config files with secrets
+config/.env
+*.key
+*.pem
+
+# Data files
+data/*.csv
+data/*.json
+data/*.db
+!data/.gitkeep
+
+# Logs
+*.log
+logs/
+
+# Cache
+.ruff_cache/
+.mypy_cache/
+.dmypy.json
+
+# Trading specific
+*.trade
+*.session
+
+# Temporary files
+tmp/
+temp/
+*.tmp
