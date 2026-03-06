@@ -1,9 +1,19 @@
 """Abstract async exchange interface."""
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import List, Optional
 
 from trading_bot.core.models import Position
+
+
+@dataclass
+class MarketSnapshot:
+    """Combined market data snapshot."""
+
+    price: float
+    positions: List[Position]
+    balance: float
 
 
 class AsyncExchange(ABC):
@@ -34,3 +44,22 @@ class AsyncExchange(ABC):
     @abstractmethod
     async def close_position(self, position_id: str) -> bool:
         """Close a position by ID and return whether it succeeded."""
+
+    async def get_market_snapshot(self, symbol: str) -> MarketSnapshot:
+        """Fetch price, positions, and balance in parallel.
+
+        Default implementation uses asyncio.gather for parallel fetch.
+        Subclasses may override for provider-specific optimizations.
+        """
+        import asyncio
+
+        price, positions, balance = await asyncio.gather(
+            self.get_price(symbol),
+            self.get_positions(symbol),
+            self.get_balance(),
+        )
+        return MarketSnapshot(
+            price=price,
+            positions=positions,
+            balance=balance,
+        )
