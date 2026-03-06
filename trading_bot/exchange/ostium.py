@@ -112,6 +112,7 @@ class OstiumExchange:
         self.balance: float = 0.0
         self.equity: float = 0.0
         self.current_price: float = 2650.0
+        self._last_successful_price: float = 2650.0
         self._subgraph_warned: bool = False
         self._sdk_price_failed: bool = False
         self._last_synced_position_count: Optional[int] = None
@@ -239,6 +240,7 @@ class OstiumExchange:
             metadata_price = self._get_metadata_price(symbol)
             if metadata_price is not None:
                 self.current_price = metadata_price
+                self._last_successful_price = metadata_price
                 return metadata_price
             return self._get_static_price(symbol)
 
@@ -249,6 +251,7 @@ class OstiumExchange:
 
             price, _, _ = await self.sdk.price.get_price(base, quote)
             self.current_price = float(price)
+            self._last_successful_price = self.current_price
             self._sdk_price_failed = False
             return self.current_price
 
@@ -277,49 +280,14 @@ class OstiumExchange:
             metadata_price = self._get_metadata_price(symbol)
             if metadata_price is not None:
                 self.current_price = metadata_price
+                self._last_successful_price = metadata_price
                 return metadata_price
-            return self._get_static_price(symbol)
-
-        try:
-            pair_info = ASSET_PAIRS.get(symbol, ASSET_PAIRS["XAUUSD"])
-            base = pair_info["base"]
-            quote = pair_info["quote"]
-
-            # Get price from SDK
-            price, _, _ = await self.sdk.price.get_price(base, quote)
-            self.current_price = float(price)
-            self._sdk_price_failed = False  # Reset flag on success
-            return self.current_price
-
-        except Exception as e:
-            error_str = str(e).lower()
-            # Check for DNS/network errors
-            is_dns_error = any(
-                x in error_str
-                for x in [
-                    "dns",
-                    "cannot connect to host",
-                    "could not contact",
-                    "failed to create dns resolver",
-                    "c-ares",
-                ]
+            self._last_successful_price = (
+                self.current_price
+                if self.current_price > 0
+                else self._last_successful_price
             )
-
-            if is_dns_error:
-                if not self._sdk_price_failed:
-                    logger.warning(
-                        f"SDK price fetch failed (DNS/network), using fallback: {e}"
-                    )
-                    self._sdk_price_failed = True
-            else:
-                logger.error(f"Price error: {e}")
-
-            # Try metadata API first
-            metadata_price = self._get_metadata_price(symbol)
-            if metadata_price is not None:
-                self.current_price = metadata_price
-                return metadata_price
-            return self._get_static_price(symbol)
+            return self._last_successful_price
 
     def _get_metadata_asset(self, symbol: str) -> str:
         mapped = symbol.replace("/", "")
@@ -346,22 +314,11 @@ class OstiumExchange:
             return None
 
     def _get_static_price(self, symbol: str) -> float:
-        """Fallback static prices"""
-        prices = {
-            "XAUUSD": 2650.0,
-            "XAU/USD": 2650.0,
-            "XAUUSDm": 2650.0,
-            "BTCUSD": 65000.0,
-            "BTC/USD": 65000.0,
-            "ETHUSD": 3500.0,
-            "ETH/USD": 3500.0,
-        }
-        return prices.get(symbol, 1000.0)
+        return self._last_successful_price
 
     def get_price_with_spread(self, symbol: str = "XAUUSD") -> tuple:
-        """Get price with bid/ask spread"""
-        price = self._get_static_price(symbol)  # Use static for spread calc
-        spread = price * 0.0002  # 0.02% spread
+        price = self._last_successful_price
+        spread = price * 0.0002
         return price - spread, price + spread
 
     def update_price(self):
