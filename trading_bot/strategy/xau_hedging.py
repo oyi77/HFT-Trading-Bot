@@ -17,8 +17,8 @@ class XAUHedgingConfig:
 
     # Trade parameters
     lots: float = 0.01  # Lot size
-    stop_loss: int = 500  # SL in pips (XAU pips = $0.01)
-    take_profit: int = 1000  # TP in pips (0 = no TP, use trailing)
+    stop_loss: int = 600  # SL in pips (XAU pips = $0.01) - optimized for volatility
+    take_profit: int = 1500  # TP in pips (0 = no TP, use trailing) - 1:2.5 ratio
 
     # Direction: 0 = buy first, 1 = sell first
     start_direction: int = 0
@@ -35,7 +35,10 @@ class XAUHedgingConfig:
     break_even_offset: int = 10  # BE offset in pips
 
     # Session filter (optional)
-    use_session_filter: bool = False  # If True, skip Asia session
+    use_session_filter: bool = True  # Enable session filter for better performance
+
+    # Position management
+    max_concurrent_positions: int = 2  # Main + 1 hedge max
 
 
 class XAUHedgingStrategy(Strategy):
@@ -78,6 +81,10 @@ class XAUHedgingStrategy(Strategy):
         self._update_tracking(positions)
         self._trail_stops(positions, bid, ask, point)
 
+        # Respect position limits
+        if len(positions) >= self.config.max_concurrent_positions:
+            return None
+
         if not positions:
             return self._open_main(price, bid, ask, point)
 
@@ -113,7 +120,11 @@ class XAUHedgingStrategy(Strategy):
 
     def _update_tracking(self, positions: List[Position]):
         """Track main position"""
-        self.main_position = positions[0] if positions else None
+        # Only set main position if we don't already have one
+        if not self.main_position and positions:
+            self.main_position = positions[0]
+        elif not positions:
+            self.main_position = None
 
     def _open_main(self, price: float, bid: float, ask: float, point: float) -> Dict:
         """Open main position - follow trend or use direction"""
