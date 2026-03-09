@@ -100,6 +100,14 @@ Examples:
         help="Trading strategy (default: xau_hedging)",
     )
 
+    # Verbose output
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output",
+    )
+
     return parser.parse_args()
 
 
@@ -192,10 +200,28 @@ def run_cli_mode(args) -> int:
 
 
 def run_tui_mode(args) -> int:
-    """Run TUI mode with interactive wizard"""
-    print("\n🚀 Starting Trading Bot TUI...")
+    """Run TUI mode - but use CLI due to Rich BlockingIOError issues"""
+    print("\n🚀 Starting Trading Bot...")
 
-    if args.yes:
+    # Check if args are provided - skip wizard if key args are set
+    has_required_args = any(
+        [
+            args.mode,
+            args.provider,
+            args.symbol,
+        ]
+    )
+
+    if args.yes or (
+        has_required_args
+        and all(
+            [
+                args.mode in ("paper", "frontest", "real"),
+                args.provider in ("exness", "ccxt", "ostium", "simulator"),
+            ]
+        )
+    ):
+        # Use args directly
         config = create_config_from_args(args)
     else:
         try:
@@ -207,13 +233,10 @@ def run_tui_mode(args) -> int:
             print(f"\n❌ Error during setup: {e}", file=sys.stderr)
             return 1
 
-    # Create TUI interface
-    try:
-        interface = get_interface("tui", config=config)
-    except ImportError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        print("Please install 'rich': pip install rich", file=sys.stderr)
-        return 1
+    # Always use CLI due to Rich BlockingIOError issues on this system
+    verbose = getattr(args, "verbose", False)
+    print(f"Using CLI interface... (verbose={verbose})")
+    interface = get_interface("cli", config=config, verbose=verbose)
 
     # Create engine
     engine = TradingEngine(config, interface=interface)

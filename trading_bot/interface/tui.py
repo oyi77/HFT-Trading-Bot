@@ -293,18 +293,34 @@ class TUIInterface(BaseInterface):
             self.on_start_callback(self.config)
 
         try:
-            with Live(
-                self.generate_display(), refresh_per_second=4, screen=True
-            ) as live:
+            # Try Rich Live display first
+            try:
+                with Live(
+                    self.generate_display(), refresh_per_second=4, screen=True
+                ) as live:
+                    while self.running:
+                        # Check for keypress
+                        key = self._read_key()
+                        if key:
+                            self.handle_key(key)
+
+                        # Update display
+                        try:
+                            live.update(self.generate_display())
+                        except BlockingIOError:
+                            # Fallback to simple print if Live fails
+                            break
+                        time.sleep(0.05)
+            except BlockingIOError:
+                # Fallback: simple print loop without Rich Live
+                self.console.print("[yellow]Falling back to simple display...[/yellow]")
                 while self.running:
-                    # Check for keypress
                     key = self._read_key()
                     if key:
                         self.handle_key(key)
-
-                    # Update display
-                    live.update(self.generate_display())
-                    time.sleep(0.05)
+                    self.console.clear()
+                    self.console.print(self.generate_display())
+                    time.sleep(0.5)
 
         except KeyboardInterrupt:
             pass

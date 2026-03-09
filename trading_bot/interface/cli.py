@@ -15,8 +15,9 @@ from trading_bot.interface.base import BaseInterface, InterfaceConfig
 class CLIInterface(BaseInterface):
     """Simple command-line interface"""
 
-    def __init__(self, config: Optional[InterfaceConfig] = None):
+    def __init__(self, config: Optional[InterfaceConfig] = None, verbose: bool = False):
         super().__init__(config)
+        self.verbose = verbose
         self.verbose = True
 
     def log(self, message: str, level: str = "info"):
@@ -47,9 +48,22 @@ class CLIInterface(BaseInterface):
         equity = metrics.get("equity", 0)
         pnl = metrics.get("pnl", 0)
         trades = metrics.get("trades", 0)
+        positions = metrics.get("positions", [])
 
-        status_line = f"Price: ${price:.2f} | Balance: ${balance:.2f} | Equity: ${equity:.2f} | P&L: ${pnl:+.4f} | Trades: {trades}"
-        print(f"\r{status_line:<80}", end="")
+        # Format positions
+        pos_str = ""
+        if positions:
+            pos_details = []
+            for pos in positions:
+                if hasattr(pos, "side"):
+                    side = pos.side.upper()
+                    vol = getattr(pos, "volume", 0)
+                    entry = getattr(pos, "entry_price", 0)
+                    pos_details.append(f"{side}:{vol:.2f}@{entry:.0f}")
+            pos_str = f" | Positions: {len(positions)} ({', '.join(pos_details)})"
+
+        status_line = f"Price: ${price:.2f} | Balance: ${balance:.2f} | Equity: ${equity:.2f} | P&L: ${pnl:+.4f} | Trades: {trades}{pos_str}"
+        print(f"\r{status_line:<120}", end="")
         sys.stdout.flush()
 
     def run(self):
