@@ -16,7 +16,9 @@ from trading_bot.strategy import (
     XAUHedgingStrategy,
     XAUHedgingConfig,
     GridStrategy,
+    GridConfig,
     TrendStrategy,
+    TrendConfig,
     HFTStrategy,
     HFTConfig,
 )
@@ -172,28 +174,30 @@ class UnifiedBacktestRunner:
                 strategy_class=XAUHedgingStrategy,
                 config=XAUHedgingConfig(lots=0.01, stop_loss=500, take_profit=1000),
                 symbols=["XAUUSDm"],
-                timeframes=["1m", "5m"],
+                timeframes=["1h", "4h", "1d"],
             ),
             StrategyBacktestConfig(
                 strategy_name="Grid",
                 strategy_class=GridStrategy,
-                config=XAUHedgingConfig(lots=0.01),
+                config=GridConfig(lots=0.01, grid_levels=5, grid_spacing_pct=0.005),
                 symbols=["XAUUSDm"],
-                timeframes=["1m", "5m"],
+                timeframes=["1h", "4h"],
             ),
             StrategyBacktestConfig(
                 strategy_name="Trend",
                 strategy_class=TrendStrategy,
-                config=XAUHedgingConfig(lots=0.01, stop_loss=200),
+                config=TrendConfig(
+                    lots=0.01, ema_fast=9, ema_slow=21, stop_loss_pips=50
+                ),
                 symbols=["XAUUSDm"],
-                timeframes=["5m", "15m"],
+                timeframes=["1h", "4h"],
             ),
             StrategyBacktestConfig(
                 strategy_name="HFT",
                 strategy_class=HFTStrategy,
                 config=HFTConfig(lots=0.01, profit_target_pips=3, stop_loss_pips=5),
                 symbols=["XAUUSDm"],
-                timeframes=["1m"],
+                timeframes=["5m", "15m"],
             ),
         ]
 

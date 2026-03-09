@@ -322,7 +322,7 @@ class OstiumExchange:
         return price - spread, price + spread
 
     def update_price(self):
-        """Update price (called by trading engine)"""
+        """Update price and sync positions (called by trading engine)"""
         updated = False
         try:
             loop = asyncio.new_event_loop()
@@ -340,6 +340,16 @@ class OstiumExchange:
         if not updated:
             bid, ask = self.get_price_with_spread("XAUUSD")
             self.current_price = (bid + ask) / 2
+
+        # Sync positions from blockchain (to catch positions opened externally)
+        try:
+            loop = asyncio.new_event_loop()
+            try:
+                loop.run_until_complete(self._sync_positions())
+            finally:
+                loop.close()
+        except Exception as e:
+            logger.debug(f"Position sync in update_price: {e}")
 
         for position in getattr(self, "positions", []):
             position.current_price = self.current_price
@@ -663,7 +673,6 @@ class OstiumExchange:
             open_trades = []
             wrapper_succeeded = False
 
-            # Preferred SDK wrapper path: returns (open_trades, trader_address)
             try:
                 wrapped = await self.sdk.get_open_trades(self.trader_address)
                 if isinstance(wrapped, tuple):
@@ -680,18 +689,16 @@ class OstiumExchange:
                     self.trader_address
                 )
 
-            # Convert to our format
-            self.positions = []
+            # Build new positions list
+            new_positions = []
             for idx, trade in enumerate(open_trades):
                 pair = trade.get("pair", {})
                 pair_id = int(pair.get("id", trade.get("index", 0)))
 
-                # Build symbol from pair
                 from_symbol = pair.get("from", "XAU")
                 to_symbol = pair.get("to", "USD")
                 symbol = f"{from_symbol}{to_symbol}"
 
-                # Map to our symbol format
                 if symbol == "XAUUSD":
                     symbol = "XAUUSD"
                 elif symbol == "BTCUSD":
@@ -699,14 +706,9 @@ class OstiumExchange:
                 elif symbol == "ETHUSD":
                     symbol = "ETHUSD"
 
-                # Direction
                 is_buy = trade.get("isBuy", True)
                 side = "long" if is_buy else "short"
 
-                # Parse values with proper decimal conversions
-                # collateral, notional: /1e6 (USDC has 6 decimals)
-                # prices: /1e18
-                # leverage: /100
                 collateral = float(trade.get("collateral", 0)) / 1e6
                 notional = float(trade.get("notional", 0)) / 1e6
                 open_price = float(trade.get("openPrice", 0)) / 1e18
@@ -715,14 +717,11 @@ class OstiumExchange:
                 if leverage <= 0:
                     leverage = 1.0
 
-                # TP/SL prices
                 tp_price = trade.get("takeProfitPrice", "0")
                 sl_price = trade.get("stopLossPrice", "0")
                 tp = float(tp_price) / 1e18 if tp_price != "0" else None
                 sl = float(sl_price) / 1e18 if sl_price != "0" else None
 
-                # Funding
-                # Calculate liquidation price (approximate)
                 if side == "long":
                     liq_price = open_price * (1 - 1 / leverage)
                 else:
@@ -732,13 +731,10 @@ class OstiumExchange:
                     id=str(trade.get("tradeID", f"trade_{idx}")),
                     symbol=symbol,
                     side=side,
-                    size=notional / open_price
-                    if open_price > 0
-                    else 0,  # Calculate size from notional
+                    size=notional,
                     entry_price=open_price,
-                    current_price=open_price,  # Will be updated separately
-                    unrealized_pnl=float(trade.get("payout", 0)) / 1e18
-                    - collateral,  # Approximate
+                    current_price=open_price,
+                    unrealized_pnl=0.0,
                     leverage=int(leverage),
                     liquidation_price=liq_price,
                     margin=collateral,
@@ -747,8 +743,9 @@ class OstiumExchange:
                     pair_id=pair_id,
                     trade_index=int(trade.get("index", idx)),
                 )
-                self.positions.append(position)
+                new_positions.append(position)
 
+            self.positions = new_positions
             synced_count = len(self.positions)
             if self._last_synced_position_count != synced_count:
                 logger.info(f"Synced {synced_count} positions from Ostium")
@@ -766,7 +763,9 @@ class OstiumExchange:
                 return
 
             if not self._subgraph_warned:
-                logger.warning(f"Position sync unavailable on current endpoint: {e}")
+                logger.warning(
+                    f"Position sync error: {e} (keeping {len(self.positions)} existing positions)"
+                )
                 self._subgraph_warned = True
 
     def get_positions(self, symbol: Optional[str] = None) -> List[OstiumPosition]:
