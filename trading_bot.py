@@ -13,6 +13,7 @@ Usage:
 import sys
 import os
 import argparse
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -88,9 +89,9 @@ Examples:
     # Provider settings
     parser.add_argument(
         "--provider",
+        type=str,
         default="exness",
-        choices=["exness", "ccxt", "ostium", "bybit"],
-        help="Exchange provider",
+        help="Broker/Exchange provider (e.g. exness,ostium,bybit)",
     )
 
     # Strategy
@@ -187,7 +188,15 @@ def run_cli_mode(args) -> int:
     def on_stop():
         engine.stop()
 
-    interface.set_callbacks(on_start=on_start, on_stop=on_stop)
+    interface.set_callbacks(
+        on_start=on_start, 
+        on_stop=on_stop,
+        on_pause=engine.pause,
+        on_resume=engine.resume,
+        on_close_all=engine.close_all_positions,
+        on_close_position=engine.close_position,
+        on_config_update=engine.update_config
+    )
 
     try:
         interface.run()
@@ -247,7 +256,15 @@ def run_tui_mode(args) -> int:
     def on_stop():
         engine.stop()
 
-    interface.set_callbacks(on_start=on_start, on_stop=on_stop)
+    interface.set_callbacks(
+        on_start=on_start, 
+        on_stop=on_stop,
+        on_pause=engine.pause,
+        on_resume=engine.resume,
+        on_close_all=engine.close_all_positions,
+        on_close_position=engine.close_position,
+        on_config_update=engine.update_config
+    )
 
     try:
         interface.run()
@@ -286,8 +303,28 @@ def run_web_mode(args) -> int:
 
     def on_stop():
         engine.stop()
+        
+    def on_restart():
+        if interface:
+            interface.log("🔄 Initiating Engine Restart...", "warning")
+        engine.stop()
+        time.sleep(1) # Allow threads to cleanly die
+        # Re-sync engine config with interface
+        engine.config = interface.config
+        engine.start()
+        if interface:
+            interface.log("✅ Engine Restart Complete.", "success")
 
-    interface.set_callbacks(on_start=on_start, on_stop=on_stop)
+    interface.set_callbacks(
+        on_start=on_start, 
+        on_stop=on_stop,
+        on_pause=engine.pause,
+        on_resume=engine.resume,
+        on_close_all=engine.close_all_positions,
+        on_close_position=engine.close_position,
+        on_config_update=engine.update_config,
+        on_restart=on_restart
+    )
 
     try:
         interface.run()

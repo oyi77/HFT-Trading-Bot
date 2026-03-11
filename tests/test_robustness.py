@@ -423,15 +423,16 @@ def test_ostium_update_price_marks_position_pnl(monkeypatch):
 def test_trading_engine_uses_total_trades_without_halving():
     cfg = InterfaceConfig(mode="paper", symbol="XAUUSDm", balance=100.0)
     engine = TradingEngine(cfg, interface=None)
-    engine.exchange = SimulatorExchange(initial_balance=1000.0)
-    engine.exchange.trades = [{"id": "t1"}]
-    engine.exchange.get_stats = lambda: {
+    simulator = SimulatorExchange(initial_balance=1000.0)
+    engine.exchanges = [simulator]
+    simulator.trades = [{"id": "t1"}]
+    simulator.get_stats = lambda: {
         "balance": 1000.0,
         "equity": 1005.0,
         "net_pnl": 5.0,
         "total_trades": 1,
     }
-    engine.strategy = XAUHedgingStrategy(XAUHedgingConfig(lots=0.01))
+    engine.strategy = XAUHedgingStrategy(XAUHedgingConfig(lots=0.01, use_session_filter=False))
     engine.strategy.on_tick = lambda price, bid, ask, positions, timestamp=None: None
 
     engine._update()

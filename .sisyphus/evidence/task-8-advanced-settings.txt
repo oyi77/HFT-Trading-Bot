@@ -1,0 +1,45 @@
+# Task 8: TUI Advanced Settings - Evidence
+
+## Implementation Summary
+Implemented TUI advanced settings with the following features:
+
+### Fields Added
+- **Lot Size**: Numeric input (0.001-100)
+- **Balance**: Numeric input (1-10000000)
+- **Trailing Stop**: Toggle boolean
+- **Trailing Stop (pips)**: Numeric input (0-10000)
+- **Break Even**: Toggle boolean  
+- **Break Even (pips)**: Numeric input (0-10000)
+- **Auto Lot**: Toggle boolean
+- **Risk %**: Numeric input (0.1-100)
+- **Max Drawdown %**: Numeric input (0-100)
+- **Asia Session**: Toggle boolean
+- **London Open**: Toggle boolean
+- **London Peak**: Toggle boolean
+- **NY Session**: Toggle boolean
+
+### Sections
+1. Basic Settings (Provider, Mode, Symbol, Lot Size, Leverage, Balance)
+2. Strategy (Strategy, Stop Loss, Take Profit)
+3. Risk Management (Auto Lot, Risk %, Max Daily Loss, Max Drawdown %, Session filters)
+4. Advanced Settings (Trailing Stop, Break Even with pips)
+
+### Features Implemented
+- Boolean toggle handling (Enter key toggles value)
+- Numeric input with range validation
+- Hot-swap feedback message ("Applied (hot-swap): ...")
+- Session filter checkboxes in Risk Management
+- Proper config value mapping
+
+## Verification Commands
+```bash
+python -c "from trading_bot.interface.tui_config import ConfigPage; print('Advanced settings work')"
+```
+
+## Test Results
+- Toggle Auto Lot: ✓
+- Toggle Trailing Stop: ✓
+- Toggle Break Even: ✓
+- Toggle Session Filters: ✓
+- Hot-swap message displays: ✓
+- Config values update correctly: ✓

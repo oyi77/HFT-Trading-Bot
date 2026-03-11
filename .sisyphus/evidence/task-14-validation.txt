@@ -1,0 +1,17 @@
+Task 14 Validation Evidence
+==================================================
+
+Test 1: Invalid leverage (5)
+Result: PASS - leverage must be between 10 and 5000
+
+Test 2: TP <= SL
+Result: PASS - tp_pips should be greater than sl_pips for proper risk/reward
+
+Test 3: High leverage + low balance
+Result: PASS - leverage 2000x too high for $100 balance (recommended: 100x or less)
+
+Test 4: Valid config passes
+Result: PASS - No errors
+
+Test 5: Save blocked for invalid config
+Result: PASS - Save blocked: leverage must be between 10 and 5000

@@ -124,7 +124,7 @@ class TestFrontestPnLLive:
         mock_exchange.get_current_price = Mock(return_value=5100.0)
         mock_exchange.get_price = Mock(return_value=5100.0)
 
-        engine.exchange = mock_exchange
+        engine.exchanges = [mock_exchange]
         engine.strategy = Mock()
         engine.strategy.on_tick.return_value = None
 

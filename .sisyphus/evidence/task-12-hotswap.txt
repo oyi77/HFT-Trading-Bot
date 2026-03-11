@@ -1,0 +1,28 @@
+=== Task 12: Hot-Swap Implementation Evidence ===
+
+Files Modified:
+- trading_bot/interface/base.py
+- trading_bot/bot.py
+
+=== Verification Commands ===
+1. InterfaceConfig.apply_config exists: True
+2. TradingBot.hot_swap_config exists: True
+3. BaseInterface.apply_config_update exists: True
+
+=== Hot-Swap Test Results ===
+Scenario: Hot-swap leverage
+Initial leverage: 2000
+After apply_config({leverage: 500}): 500
+requires_restart(): False
+
+Scenario: Non-hot-swap field
+apply_config({mode: real}) fails with: mode: requires restart
+requires_restart(): True
+
+=== Hot-Swap Fields (15 total) ===
+lot, leverage, sl_pips, tp_pips, trailing_stop, trail_start,
+break_even, break_even_offset, use_asia_session, use_london_open,
+use_ny_session, use_auto_lot, risk_percent, max_daily_loss, max_drawdown
+
+=== Restart-Required Fields ===
+mode, provider, account, symbol, strategy, exchange, credentials, days

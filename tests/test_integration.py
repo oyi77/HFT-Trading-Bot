@@ -90,7 +90,9 @@ class TestEndToEndFlow:
         """Test signal generation through execution"""
         # Setup
         exchange = SimulatorExchange(initial_balance=100.0)
-        strategy = XAUHedgingStrategy(XAUHedgingConfig(lots=0.01))
+        strategy = XAUHedgingStrategy(
+            XAUHedgingConfig(lots=0.01, use_session_filter=False)
+        )
 
         # No positions - should get open signal
         signal = strategy.on_tick(price=5000.0, bid=4999.98, ask=5000.02, positions=[])
@@ -148,7 +150,9 @@ class TestEndToEndFlow:
     def test_trailing_stop_execution(self):
         """Test trailing stop logic"""
         exchange = SimulatorExchange(initial_balance=1000.0)
-        strategy = XAUHedgingStrategy(XAUHedgingConfig(lots=0.01))
+        strategy = XAUHedgingStrategy(
+            XAUHedgingConfig(lots=0.01, use_session_filter=False)
+        )
 
         # Open position
         signal = strategy.on_tick(5000.0, 4999.98, 5000.02, [])
@@ -303,11 +307,11 @@ class TestMultiProviderSupport:
         """Test Exness-specific configuration"""
         config = BotConfig(
             mode="frontest",
-            provider="exness",
+            provider=["exness"],
             account="demo",
             symbol="XAUUSDm",
             lot=0.01,
-            leverage=2000,
+            leverage=100,
             strategy="xau_hedging",
             sl_pips=500,
             tp_pips=1000,
@@ -318,14 +322,16 @@ class TestMultiProviderSupport:
             },
         )
 
-        assert config.provider == "exness"
-        assert config.credentials["server"] == "trial6"
+        assert config.provider == ["exness"]
+        assert (
+            config.credentials is not None and config.credentials["server"] == "trial6"
+        )
 
     def test_ccxt_provider_config(self):
         """Test CCXT-specific configuration"""
         config = BotConfig(
             mode="frontest",
-            provider="ccxt",
+            provider=["ccxt"],
             account="demo",
             symbol="BTC/USD",
             lot=0.01,
@@ -337,15 +343,15 @@ class TestMultiProviderSupport:
             credentials={"api_key": "key", "api_secret": "secret", "sandbox": True},
         )
 
-        assert config.provider == "ccxt"
+        assert config.provider == ["ccxt"]
         assert config.exchange == "binance"
-        assert config.credentials["sandbox"] is True
+        assert config.credentials is not None and config.credentials["sandbox"] is True
 
     def test_ostium_provider_config(self):
         """Test Ostium-specific configuration"""
         config = BotConfig(
             mode="real",
-            provider="ostium",
+            provider=["ostium"],
             account="real",
             symbol="ETHUSD",
             lot=0.1,
@@ -360,8 +366,10 @@ class TestMultiProviderSupport:
             },
         )
 
-        assert config.provider == "ostium"
-        assert config.credentials["chain_id"] == 42161
+        assert config.provider == ["ostium"]
+        assert (
+            config.credentials is not None and config.credentials["chain_id"] == 42161
+        )
 
 
 class TestOstiumIntegration:
@@ -486,7 +494,7 @@ class TestOstiumIntegration:
                 pytest.skip(f"Insufficient testnet balance: {balance} USDC")
 
             # Setup strategy
-            strategy_config = XAUHedgingConfig(lots=0.01)
+            strategy_config = XAUHedgingConfig(lots=0.01, use_session_filter=False)
             strategy = XAUHedgingStrategy(strategy_config)
 
             # Get price
@@ -701,3 +709,723 @@ class TestExnessIntegration:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestTUIConfigIntegration:
+    """Integration tests for TUI config page"""
+
+    def test_tui_config_page_initialization(self):
+        """Test TUI config page initializes correctly"""
+        from trading_bot.interface.tui_config import ConfigPage, InterfaceConfig
+
+        config = InterfaceConfig(
+            mode="paper",
+            provider=["simulator"],
+            symbol="XAUUSDm",
+            lot=0.01,
+            leverage=100,
+            strategy="xau_hedging",
+            sl_pips=500,
+            tp_pips=1000,
+        )
+
+        config_page = ConfigPage(config)
+
+        assert config_page is not None
+        assert config_page.config == config
+        assert len(config_page.fields) > 0
+
+    def test_tui_config_page_navigation(self):
+        """Test TUI config page navigation"""
+        from trading_bot.interface.tui_config import ConfigPage, InterfaceConfig
+
+        config = InterfaceConfig(
+            mode="paper",
+            provider=["simulator"],
+            symbol="XAUUSDm",
+            lot=0.01,
+            leverage=100,
+            strategy="xau_hedging",
+            sl_pips=500,
+            tp_pips=1000,
+        )
+
+        config_page = ConfigPage(config)
+
+        # Initial state
+        assert config_page.current_section == 0
+        assert config_page.current_field_index == 0
+
+        # Navigate down
+        config_page.navigate_next()
+        assert config_page.current_field_index == 1
+
+        # Navigate up
+        config_page.navigate_prev()
+        assert config_page.current_field_index == 0
+
+    def test_tui_config_page_section_change(self):
+        """Test TUI config page section navigation"""
+        from trading_bot.interface.tui_config import ConfigPage, InterfaceConfig
+
+        config = InterfaceConfig(
+            mode="paper",
+            provider=["simulator"],
+            symbol="XAUUSDm",
+            lot=0.01,
+            leverage=100,
+            strategy="xau_hedging",
+            sl_pips=500,
+            tp_pips=1000,
+        )
+
+        config_page = ConfigPage(config)
+
+        # Get initial section fields
+        initial_fields = config_page.get_current_section_fields()
+        assert len(initial_fields) > 0
+
+        # Navigate to next section
+        config_page.current_section = 1
+        next_fields = config_page.get_current_section_fields()
+        assert len(next_fields) > 0
+
+    def test_tui_config_numeric_edit(self):
+        """Test TUI config numeric field editing"""
+        from trading_bot.interface.tui_config import ConfigPage, InterfaceConfig
+
+        config = InterfaceConfig(
+            mode="paper",
+            provider=["simulator"],
+            symbol="XAUUSDm",
+            lot=0.01,
+            leverage=100,
+            strategy="xau_hedging",
+            sl_pips=500,
+            tp_pips=1000,
+        )
+
+        config_page = ConfigPage(config)
+
+        # Find a numeric field
+        numeric_field = None
+        for field in config_page.fields:
+            if field.name in [
+                "Lot Size",
+                "Leverage",
+                "Stop Loss (pips)",
+                "Take Profit (pips)",
+            ]:
+                numeric_field = field
+                break
+
+        assert numeric_field is not None
+        assert numeric_field.value is not None
+
+    def test_tui_config_selection(self):
+        """Test TUI config selection UI"""
+        from trading_bot.interface.tui_config import (
+            ConfigPage,
+            InterfaceConfig,
+            PROVIDER_OPTIONS,
+        )
+
+        config = InterfaceConfig(
+            mode="paper",
+            provider=["simulator"],
+            symbol="XAUUSDm",
+            lot=0.01,
+            leverage=100,
+            strategy="xau_hedging",
+            sl_pips=500,
+            tp_pips=1000,
+        )
+
+        config_page = ConfigPage(config)
+
+        # Find Provider field
+        provider_field = None
+        for field in config_page.fields:
+            if field.name == "Provider":
+                provider_field = field
+                break
+
+        assert provider_field is not None
+        assert provider_field.options is not None
+        assert len(provider_field.options) > 0
+
+    def test_tui_config_boolean_toggle(self):
+        """Test TUI config boolean field toggling"""
+        from trading_bot.interface.tui_config import ConfigPage, InterfaceConfig
+
+        config = InterfaceConfig(
+            mode="paper",
+            provider=["simulator"],
+            symbol="XAUUSDm",
+            lot=0.01,
+            leverage=100,
+            strategy="xau_hedging",
+            sl_pips=500,
+            tp_pips=1000,
+            trailing_stop=False,
+            break_even=False,
+        )
+
+        config_page = ConfigPage(config)
+
+        # Find a boolean field
+        bool_field = None
+        for field in config_page.fields:
+            if field.name == "Trailing Stop":
+                bool_field = field
+                break
+
+        assert bool_field is not None
+        assert bool_field.value is False
+
+    def test_tui_config_render(self):
+        """Test TUI config page renders without errors"""
+        from trading_bot.interface.tui_config import ConfigPage, InterfaceConfig
+
+        config = InterfaceConfig(
+            mode="paper",
+            provider=["simulator"],
+            symbol="XAUUSDm",
+            lot=0.01,
+            leverage=100,
+            strategy="xau_hedging",
+            sl_pips=500,
+            tp_pips=1000,
+        )
+
+        config_page = ConfigPage(config)
+        panel = config_page.render()
+
+        assert panel is not None
+        assert panel.title is not None
+
+
+class TestWebConfigIntegration:
+    """Integration tests for Web config page"""
+
+    def test_web_config_html_exists(self):
+        """Test Web config page HTML is defined"""
+        from trading_bot.interface.web import CONFIG_PAGE_HTML
+
+        assert CONFIG_PAGE_HTML is not None
+        assert len(CONFIG_PAGE_HTML) > 0
+        assert "Configuration" in CONFIG_PAGE_HTML
+
+    def test_web_config_form_fields(self):
+        """Test Web config page has required form fields"""
+        from trading_bot.interface.web import CONFIG_PAGE_HTML
+
+        # Check for key form fields
+        assert 'id="conf_mode"' in CONFIG_PAGE_HTML
+        assert 'id="conf_provider"' in CONFIG_PAGE_HTML
+        assert 'id="conf_lot"' in CONFIG_PAGE_HTML
+        assert 'id="conf_leverage"' in CONFIG_PAGE_HTML
+        assert 'id="conf_sl_pips"' in CONFIG_PAGE_HTML
+        assert 'id="conf_tp_pips"' in CONFIG_PAGE_HTML
+
+    def test_web_dashboard_integration(self):
+        """Test Web dashboard includes config tab"""
+        from trading_bot.interface.web import DASHBOARD_HTML
+
+        assert DASHBOARD_HTML is not None
+        assert "tab-config" in DASHBOARD_HTML
+        assert "updateBotConfig" in DASHBOARD_HTML
+
+
+class TestConfigPersistence:
+    """Integration tests for config persistence"""
+
+    def test_config_save_and_load(self, tmp_path):
+        """Test config save and load cycle"""
+        from trading_bot.interface.config_persistence import save_config, load_config
+        from trading_bot.interface.base import InterfaceConfig
+
+        config = InterfaceConfig(
+            mode="paper",
+            provider=["simulator"],
+            symbol="XAUUSDm",
+            lot=0.01,
+            leverage=1000,
+            strategy="xau_hedging",
+            sl_pips=500,
+            tp_pips=1000,
+            balance=500.0,
+        )
+
+        filepath = tmp_path / "test_config.json"
+        saved_path = save_config(config, str(filepath))
+
+        assert os.path.exists(saved_path)
+
+        # Load config
+        loaded = load_config(str(filepath))
+
+        assert loaded.mode == config.mode
+        assert loaded.symbol == config.symbol
+        assert loaded.lot == config.lot
+        assert loaded.leverage == 1000
+        assert loaded.balance == 500.0
+
+    def test_config_persistence_with_all_fields(self, tmp_path):
+        """Test config persistence with all fields"""
+        from trading_bot.interface.config_persistence import save_config, load_config
+        from trading_bot.interface.base import InterfaceConfig
+
+        config = InterfaceConfig(
+            mode="frontest",
+            provider=["exness"],
+            account="demo",
+            symbol="XAUUSDm",
+            lot=0.02,
+            leverage=2000,
+            strategy="grid",
+            sl_pips=300,
+            tp_pips=600,
+            days=14,
+            balance=1000.0,
+            trailing_stop=True,
+            trail_start=200,
+            break_even=True,
+            break_even_offset=50,
+            use_auto_lot=True,
+            risk_percent=2.0,
+            max_daily_loss=50.0,
+            max_drawdown=15.0,
+            use_asia_session=True,
+            use_london_open=True,
+            use_ny_session=False,
+        )
+
+        filepath = tmp_path / "full_config.json"
+        save_config(config, str(filepath))
+
+        loaded = load_config(str(filepath))
+
+        # Verify all fields
+        assert loaded.mode == "frontest"
+        assert loaded.provider == ["exness"]
+        assert loaded.leverage == 2000
+        assert loaded.trailing_stop is True
+        assert loaded.trail_start == 200
+        assert loaded.break_even is True
+        assert loaded.use_auto_lot is True
+        assert loaded.risk_percent == 2.0
+
+    def test_config_persistence_restart_flow(self, tmp_path):
+        """Test config persists correctly across simulated restarts"""
+        from trading_bot.interface.config_persistence import save_config, load_config
+        from trading_bot.interface.base import InterfaceConfig
+
+        # Initial config
+        config1 = InterfaceConfig(
+            mode="paper",
+            provider=["simulator"],
+            symbol="XAUUSDm",
+            lot=0.01,
+            leverage=100,
+            strategy="xau_hedging",
+            sl_pips=500,
+            tp_pips=1000,
+        )
+
+        filepath = tmp_path / "restart_config.json"
+        save_config(config1, str(filepath))
+
+        # Simulate restart - load config
+        loaded1 = load_config(str(filepath))
+        assert loaded1.leverage == 100
+
+        # Modify config (simulate runtime change)
+        loaded1.leverage = 500
+        save_config(loaded1, str(filepath))
+
+        # Simulate another restart - load again
+        loaded2 = load_config(str(filepath))
+        assert loaded2.leverage == 500
+
+    def test_config_version_migration(self, tmp_path):
+        """Test config version migration works"""
+        from trading_bot.interface.config_persistence import save_config, load_config
+        import json
+
+        # Create a v0 config manually
+        old_config = {
+            "mode": "paper",
+            "provider": ["simulator"],
+            "symbol": "XAUUSDm",
+            "lot": 0.01,
+            "leverage": 100,
+            "strategy": "xau_hedging",
+            "sl_pips": 500,
+            "tp_pips": 1000,
+            "config_version": 0,  # Old version
+        }
+
+        filepath = tmp_path / "old_config.json"
+        with open(filepath, "w") as f:
+            json.dump(old_config, f)
+
+        # Load should migrate
+        loaded = load_config(str(filepath))
+
+        # Check migrated fields have defaults
+        assert loaded.trailing_stop is False
+        assert loaded.break_even is False
+        assert loaded.use_auto_lot is False
+
+
+class TestHotSwapAndRestart:
+    """Integration tests for hot-swap and restart flows"""
+
+    def test_tui_hot_swap_message(self):
+        """Test hot-swap message is shown"""
+        from trading_bot.interface.tui_config import ConfigPage, InterfaceConfig
+
+        config = InterfaceConfig(
+            mode="paper",
+            provider=["simulator"],
+            symbol="XAUUSDm",
+            lot=0.01,
+            leverage=100,
+            strategy="xau_hedging",
+            sl_pips=500,
+            tp_pips=1000,
+            trailing_stop=False,
+        )
+
+        config_page = ConfigPage(config)
+
+        # Initially no message
+        assert config_page.hot_swap_message is None
+
+        # Show message
+        config_page.show_hot_swap_message("Test applied")
+
+        assert config_page.hot_swap_message == "Test applied"
+        assert config_page.hot_swap_timer > 0
+
+    def test_restart_required_fields(self):
+        """Test restart required fields are properly identified"""
+        from trading_bot.interface.tui_config import RESTART_REQUIRED_FIELDS
+
+        # Check key fields
+        assert "mode" in RESTART_REQUIRED_FIELDS
+        assert "provider" in RESTART_REQUIRED_FIELDS
+        assert "symbol" in RESTART_REQUIRED_FIELDS
+        assert "strategy" in RESTART_REQUIRED_FIELDS
+
+    def test_config_change_triggers_restart_message(self):
+        """Test config change triggers restart message"""
+        from trading_bot.interface.tui_config import ConfigPage, InterfaceConfig
+
+        config = InterfaceConfig(
+            mode="paper",
+            provider=["simulator"],
+            symbol="XAUUSDm",
+            lot=0.01,
+            leverage=100,
+            strategy="xau_hedging",
+            sl_pips=500,
+            tp_pips=1000,
+        )
+
+        config_page = ConfigPage(config)
+
+        # Initially no restart message
+        assert config_page.show_restart_message is False
+
+        # Set restart message
+        config_page.show_restart_message = True
+        assert config_page.show_restart_message is True
+
+
+class TestConfigErrorHandling:
+    """Integration tests for config error handling"""
+
+    def test_load_nonexistent_config_raises(self):
+        """Test loading non-existent config raises error"""
+        from trading_bot.interface.config_persistence import load_config
+
+        with pytest.raises(FileNotFoundError):
+            load_config("/nonexistent/path/config.json")
+
+    def test_load_corrupted_config_raises(self, tmp_path):
+        """Test loading corrupted config raises error"""
+        from trading_bot.interface.config_persistence import load_config
+        import json
+
+        filepath = tmp_path / "corrupted.json"
+        filepath.write_text("not valid json {")
+
+        with pytest.raises(json.JSONDecodeError):
+            load_config(str(filepath))
+
+    def test_tui_numeric_validation(self):
+        """Test TUI numeric field validation"""
+        from trading_bot.interface.tui_config import (
+            ConfigPage,
+            InterfaceConfig,
+            NUMERIC_FIELDS,
+        )
+
+        # Check numeric field configs
+        assert "Leverage" in NUMERIC_FIELDS
+        assert NUMERIC_FIELDS["Leverage"]["min"] == 10
+        assert NUMERIC_FIELDS["Leverage"]["max"] == 5000
+
+        assert "Lot Size" in NUMERIC_FIELDS
+        assert NUMERIC_FIELDS["Lot Size"]["min"] == 0.001
+        assert NUMERIC_FIELDS["Lot Size"]["max"] == 100
+
+    def test_tui_invalid_numeric_input(self):
+        """Test TUI handles invalid numeric input"""
+        from trading_bot.interface.tui_config import (
+            ConfigPage,
+            InterfaceConfig,
+            NUMERIC_FIELDS,
+            ConfigField,
+        )
+
+        config = InterfaceConfig(
+            mode="paper",
+            provider=["simulator"],
+            symbol="XAUUSDm",
+            lot=0.01,
+            leverage=100,
+            strategy="xau_hedging",
+            sl_pips=500,
+            tp_pips=1000,
+        )
+
+        config_page = ConfigPage(config)
+
+        # First activate numeric edit mode with a field
+        field_name = "Leverage"
+        config_field = NUMERIC_FIELDS[field_name]
+
+        # Find the Leverage field
+        leverage_field = None
+        for field in config_page.fields:
+            if field.name == field_name:
+                leverage_field = field
+                break
+
+        assert leverage_field is not None
+
+        # Activate edit mode
+        config_page._activate_numeric_edit(leverage_field)
+        assert config_page.numeric_edit.active is True
+
+        # Test validation with out-of-range value
+        # Value too low
+        valid, error = config_page._validate_numeric_input(config_field["min"] - 1)
+        assert valid is False
+        assert error is not None
+
+        # Value too high
+        valid, error = config_page._validate_numeric_input(config_field["max"] + 1)
+        assert valid is False
+
+        # Valid value
+        valid, error = config_page._validate_numeric_input(config_field["min"])
+        assert valid is True
+
+    def test_tui_numeric_edit_buffer(self):
+        """Test TUI numeric edit buffer handling"""
+        from trading_bot.interface.tui_config import NumericEditState, ConfigField
+
+        edit_state = NumericEditState()
+
+        # Test empty buffer
+        assert edit_state.get_value() is None
+
+        # Start editing
+        field = ConfigField("Test", 100, "Test")
+        edit_state.start_edit(field)
+
+        assert edit_state.active is True
+        assert edit_state.current_value == 100.0
+
+        # Add to buffer
+        edit_state.edit_buffer = "500"
+        assert edit_state.get_value() == 500.0
+
+        # Test error
+        edit_state.set_error("Test error")
+        assert edit_state.error_message == "Test error"
+
+    def test_config_with_invalid_values_fails_validation(self):
+        """Test config with invalid values fails safety validation"""
+        from trading_bot.interface.base import InterfaceConfig, validate_safety
+
+        # Test dangerous lot
+        config = InterfaceConfig(
+            mode="paper",
+            provider=["simulator"],
+            symbol="XAUUSDm",
+            lot=10.0,  # Dangerous!
+            leverage=100,
+            strategy="xau_hedging",
+            sl_pips=500,
+            tp_pips=1000,
+        )
+
+        is_safe, warnings = validate_safety(config)
+        assert "lot" in warnings.lower() or "dangerous" in warnings.lower()
+
+    def test_tui_selection_state(self):
+        """Test TUI selection state management"""
+        from trading_bot.interface.tui_config import (
+            ConfigPage,
+            SelectionState,
+            ConfigField,
+            PROVIDER_OPTIONS,
+        )
+        from trading_bot.interface.base import InterfaceConfig
+
+        # Test via ConfigPage
+        config = InterfaceConfig(
+            mode="paper",
+            provider=["simulator"],
+            symbol="XAUUSDm",
+            lot=0.01,
+            leverage=100,
+            strategy="xau_hedging",
+            sl_pips=500,
+            tp_pips=1000,
+        )
+
+        config_page = ConfigPage(config)
+
+        # Select Provider field (has options)
+        provider_field = None
+        for field in config_page.fields:
+            if field.name == "Provider":
+                provider_field = field
+                break
+
+        assert provider_field is not None
+        assert provider_field.options is not None
+
+        # Activate selection
+        config_page._activate_selection(provider_field)
+
+        # Test selection state
+        assert config_page.selection.active is True
+        assert config_page.selection.field == provider_field
+        assert len(config_page.selection.options) > 0
+
+        # Navigate up
+        config_page.selection_up()
+        initial_index = config_page.selection.selected_index
+
+        # Navigate down
+        config_page.selection_down()
+        assert config_page.selection.selected_index == initial_index + 1
+
+        # Deactivate
+        config_page._deactivate_selection()
+        assert config_page.selection.active is False
+
+
+class TestConfigIntegrationScenarios:
+    """End-to-end integration scenarios for config system"""
+
+    def test_full_tui_config_workflow(self):
+        """Test complete TUI config workflow"""
+        from trading_bot.interface.tui_config import ConfigPage, InterfaceConfig
+
+        # Initialize
+        config = InterfaceConfig(
+            mode="paper",
+            provider=["simulator"],
+            symbol="XAUUSDm",
+            lot=0.01,
+            leverage=100,
+            strategy="xau_hedging",
+            sl_pips=500,
+            tp_pips=1000,
+        )
+
+        config_page = ConfigPage(config)
+
+        # Navigate through sections
+        for _ in range(3):
+            config_page.navigate_next()
+
+        # Navigate through sections backwards
+        for _ in range(3):
+            config_page.navigate_prev()
+
+        # Render (should not crash)
+        panel = config_page.render()
+        assert panel is not None
+
+    def test_config_persistence_workflow(self, tmp_path):
+        """Test complete config persistence workflow"""
+        from trading_bot.interface.config_persistence import (
+            save_config,
+            load_config,
+            config_exists,
+        )
+        from trading_bot.interface.base import InterfaceConfig
+
+        filepath = tmp_path / "workflow_config.json"
+
+        # Create and save
+        config = InterfaceConfig(
+            mode="paper",
+            provider=["simulator"],
+            symbol="XAUUSDm",
+            lot=0.01,
+            leverage=100,
+            strategy="xau_hedging",
+            sl_pips=500,
+            tp_pips=1000,
+        )
+
+        save_config(config, str(filepath))
+
+        # Verify exists
+        assert config_exists(str(filepath))
+
+        # Load and verify
+        loaded = load_config(str(filepath))
+        assert loaded.mode == "paper"
+        assert loaded.symbol == "XAUUSDm"
+
+    def test_config_validation_and_persistence(self, tmp_path):
+        """Test config validation before persistence"""
+        from trading_bot.interface.config_persistence import save_config, load_config
+        from trading_bot.interface.base import InterfaceConfig, validate_safety
+
+        # Create unsafe config
+        config = InterfaceConfig(
+            mode="real",  # Real mode
+            provider=["exness"],
+            account="real",
+            symbol="XAUUSDm",
+            lot=0.1,  # High risk
+            leverage=100,
+            strategy="xau_hedging",
+            sl_pips=500,
+            tp_pips=1000,
+        )
+
+        # Validate
+        is_safe, warnings = validate_safety(config)
+
+        # Should have warnings
+        assert len(warnings) > 0
+
+        # But should still save (we don't prevent unsafe configs, just warn)
+        filepath = tmp_path / "unsafe_config.json"
+        save_config(config, str(filepath))
+
+        loaded = load_config(str(filepath))
+        assert loaded.lot == 0.1

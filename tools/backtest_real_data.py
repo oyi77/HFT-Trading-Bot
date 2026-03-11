@@ -29,9 +29,9 @@ def load_or_fetch_data(
     
     # Fetch new data
     print("🌐 Fetching fresh data from Yahoo Finance...")
-    df = fetch_xau_data(period="1y", interval="1m", output_file=data_file)
+    # Yahoo Finance limits 1m data to max 7 days
+    df = fetch_xau_data(period="7d", interval="1m", output_file=data_file)
     return df
-
 
 def prepare_data(df: pd.DataFrame) -> pd.DataFrame:
     """Prepare data for backtesting"""

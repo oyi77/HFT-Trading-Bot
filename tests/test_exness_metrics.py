@@ -70,7 +70,7 @@ class TestXAUHedgingMaxPositions:
         )
         from trading_bot.core.models import Position, PositionSide
 
-        strategy = XAUHedgingStrategy(XAUHedgingConfig())
+        strategy = XAUHedgingStrategy(XAUHedgingConfig(use_session_filter=False))
 
         # Create 2 positions
         positions = [
@@ -104,7 +104,7 @@ class TestXAUHedgingMaxPositions:
             XAUHedgingConfig,
         )
 
-        strategy = XAUHedgingStrategy(XAUHedgingConfig())
+        strategy = XAUHedgingStrategy(XAUHedgingConfig(use_session_filter=False))
 
         signal = strategy.on_tick(price=5050.0, bid=5049.98, ask=5050.02, positions=[])
 
@@ -119,7 +119,7 @@ class TestXAUHedgingMaxPositions:
         )
         from trading_bot.core.models import Position, PositionSide
 
-        strategy = XAUHedgingStrategy(XAUHedgingConfig())
+        strategy = XAUHedgingStrategy(XAUHedgingConfig(use_session_filter=False))
 
         positions = [
             Position(
