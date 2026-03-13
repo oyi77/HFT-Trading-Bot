@@ -13,6 +13,7 @@ from trading_bot.interface.config_persistence import (
     load_config,
     get_config_path,
 )
+from trading_bot.core.backtest_runner import run_strategy_comparison
 
 
 DASHBOARD_HTML = """
@@ -386,7 +387,7 @@ DASHBOARD_HTML = """
                 <h3 style="margin-top:0; color: var(--text-secondary);">Risk Management</h3>
                 <div class="metrics-grid">
                     <div class="metric-card">
-                        <div class="metric-label">Market Price</div>
+                        <div class="metric-label"><span id="val-price-symbol">Market</span> Price</div>
                         <div class="metric-value" id="val-price" style="font-family: monospace;">$0.00</div>
                     </div>
                     <div class="metric-card">
@@ -403,10 +404,12 @@ DASHBOARD_HTML = """
 
         <div class="glass-panel">
             <div class="tabs">
-                <button class="tab-btn active" onclick="showTab('tab-positions')">Open Positions (<span id="pos-count">0</span>)</button>
-                <button class="tab-btn" onclick="showTab('tab-orders')">Pending Orders (<span id="orders-count">0</span>)</button>
-                <button class="tab-btn" onclick="showTab('tab-history')">Trade History (<span id="history-count">0</span>)</button>
-                <button class="tab-btn" onclick="showTab('tab-config')">⚙️ Settings</button>
+                <button class="tab-btn active" onclick="showTab('tab-positions', this)">Open Positions (<span id="pos-count">0</span>)</button>
+                <button class="tab-btn" onclick="showTab('tab-orders', this)">Pending Orders (<span id="orders-count">0</span>)</button>
+                <button class="tab-btn" onclick="showTab('tab-history', this)">Trade History (<span id="history-count">0</span>)</button>
+                <button class="tab-btn" onclick="showTab('tab-config', this)">⚙️ Settings</button>
+                <button class="tab-btn" onclick="showTab('tab-backtest', this)">📊 Backtest</button>
+                <button class="tab-btn" onclick="showTab('tab-markets', this)">📈 Markets</button>
             </div>
             
             <div id="tab-positions" class="tab-content active">
@@ -485,15 +488,35 @@ DASHBOARD_HTML = """
                     <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 24px;">
                         <div>
                             <label style="display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 5px;">Pair (Symbol)</label>
-                            <input type="text" id="conf_symbol" style="width: 100%; padding: 8px; border-radius: 6px; background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); color: white;" />
+                            <input list="pairs" id="conf_symbol" style="width: 100%; padding: 8px; border-radius: 6px; background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); color: white;" />
+                            <datalist id="pairs">
+                                <option value="XAUUSDm"></option>
+                                <option value="BTCUSDT"></option>
+                                <option value="BTCUSD"></option>
+                                <option value="ETHUSDT"></option>
+                                <option value="EURUSD"></option>
+                            </datalist>
                         </div>
                         <div>
-                            <label style="display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 5px;">Provider(s) (comma-separated)</label>
-                            <input type="text" id="conf_provider" style="width: 100%; padding: 8px; border-radius: 6px; background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); color: white;" />
+                            <label style="display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 5px;">Provider(s) (Cmd/Ctrl+Click to multi-select)</label>
+                            <select id="conf_provider" multiple size="4" style="width: 100%; padding: 8px; border-radius: 6px; background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); color: white;">
+                                <option value="simulator">Simulator (Paper)</option>
+                                <option value="exness">Exness</option>
+                                <option value="ccxt">CCXT (Binance/Bybit)</option>
+                                <option value="ostium">Ostium DEX</option>
+                            </select>
                         </div>
                         <div>
                             <label style="display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 5px;">Timeframe</label>
-                            <input type="text" id="conf_tf" style="width: 100%; padding: 8px; border-radius: 6px; background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); color: white;" />
+                            <select id="conf_tf" style="width: 100%; padding: 8px; border-radius: 6px; background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); color: white;">
+                                <option value="1m">1m</option>
+                                <option value="5m">5m</option>
+                                <option value="15m">15m</option>
+                                <option value="30m">30m</option>
+                                <option value="1h">1h</option>
+                                <option value="4h">4h</option>
+                                <option value="1d">1d</option>
+                            </select>
                         </div>
                         <div>
                             <label style="display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 5px;">Mode</label>
@@ -505,7 +528,12 @@ DASHBOARD_HTML = """
                         </div>
                         <div>
                             <label style="display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 5px;">Strategy</label>
-                            <input type="text" id="conf_strategy" style="width: 100%; padding: 8px; border-radius: 6px; background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); color: white;" />
+                            <select id="conf_strategy" style="width: 100%; padding: 8px; border-radius: 6px; background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); color: white;">
+                                <option value="xau_hedging">XAU Hedging</option>
+                                <option value="grid">Grid (Mean Reversion)</option>
+                                <option value="trend">Trend (EMA Crossover)</option>
+                                <option value="hft">HFT (Orderbook + Vol)</option>
+                            </select>
                         </div>
                     </div>
                     
@@ -603,6 +631,73 @@ DASHBOARD_HTML = """
                     <button class="btn btn-success" style="width: 100%; padding: 12px;" onclick="updateBotConfig()">Apply Configuration Variables</button>
                 </div>
             </div>
+
+            <div id="tab-backtest" class="tab-content">
+                <div style="background: rgba(15, 23, 42, 0.4); border-radius: 8px; padding: 20px; border: 1px solid var(--panel-border);">
+                    <h4 style="margin-top: 0; color: var(--accent-color);">📊 Run Strategy Comparison</h4>
+                    <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 20px;">Compare multiple strategies across different providers. This may take several minutes depending on data volume.</p>
+                    
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 24px;">
+                        <div>
+                            <label style="display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 5px;">Strategy</label>
+                            <select id="bt_strategy" style="width: 100%; padding: 8px; border-radius: 6px; background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); color: white;">
+                                <option value="all">All Strategies</option>
+                                <option value="HFT">HFT</option>
+                                <option value="Trend">Trend</option>
+                                <option value="Grid">Grid</option>
+                                <option value="XAU_Hedging">XAU Hedging</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style="display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 5px;">Provider</label>
+                            <select id="bt_provider" style="width: 100%; padding: 8px; border-radius: 6px; background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); color: white;">
+                                <option value="all">All Providers</option>
+                                <option value="simulator">Simulator (Paper)</option>
+                                <option value="ostium">Ostium DEX</option>
+                                <option value="exness">Exness</option>
+                                <option value="ccxt">CCXT (Binance/Bybit)</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <button id="bt_run_btn" class="btn btn-success" style="width: 100%; padding: 12px;" onclick="runBacktest()">▶ Run Backtest</button>
+                    
+                    <div id="bt_status_msg" style="display: none; margin-top: 16px; padding: 12px; border-radius: 8px; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.2); color: var(--accent-color); text-align: center; font-size: 14px;"></div>
+                    
+                    <div id="bt_results_container" style="display: none; margin-top: 24px;">
+                        <h4 style="color: var(--accent-color); margin-bottom: 10px;">Results</h4>
+                        <div id="bt_report_target" style="overflow-x: auto;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="tab-markets" class="tab-content">
+                <div style="background: rgba(15, 23, 42, 0.4); border-radius: 8px; padding: 20px; border: 1px solid var(--panel-border);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <h4 style="margin: 0; color: var(--accent-color);">📈 Market Watchlist</h4>
+                        <button class="btn" style="padding: 6px 14px; font-size: 12px;" onclick="fetchMarketPrices()" id="mkt_refresh_btn">🔄 Refresh</button>
+                    </div>
+                    <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 16px;">Live prices from your connected exchange. Updates automatically every 5 seconds when this tab is active.</p>
+                    <div id="mkt_status" style="display: none; margin-bottom: 12px; padding: 10px; border-radius: 6px; text-align: center; font-size: 13px;"></div>
+                    <div style="overflow-x: auto;">
+                        <table style="width: 100%; text-align: left; border-collapse: collapse;">
+                            <thead>
+                                <tr>
+                                    <th style="padding: 10px; border-bottom: 1px solid var(--panel-border); color: var(--text-secondary); font-size: 12px; text-transform: uppercase;">Symbol</th>
+                                    <th style="padding: 10px; border-bottom: 1px solid var(--panel-border); color: var(--text-secondary); font-size: 12px; text-transform: uppercase;">Last Price</th>
+                                    <th style="padding: 10px; border-bottom: 1px solid var(--panel-border); color: var(--text-secondary); font-size: 12px; text-transform: uppercase;">Bid</th>
+                                    <th style="padding: 10px; border-bottom: 1px solid var(--panel-border); color: var(--text-secondary); font-size: 12px; text-transform: uppercase;">Ask</th>
+                                    <th style="padding: 10px; border-bottom: 1px solid var(--panel-border); color: var(--text-secondary); font-size: 12px; text-transform: uppercase;">Spread</th>
+                                    <th style="padding: 10px; border-bottom: 1px solid var(--panel-border); color: var(--text-secondary); font-size: 12px; text-transform: uppercase;">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="mkt_table_body">
+                                <tr><td colspan="6" style="text-align: center; padding: 20px; color: var(--text-secondary);">Click Refresh or switch to this tab to load prices...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="glass-panel">
@@ -614,11 +709,11 @@ DASHBOARD_HTML = """
     </div>
 
     <script>
-        function showTab(tabId) {
+        function showTab(tabId, btn) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
             document.getElementById(tabId).classList.add('active');
-            event.currentTarget.classList.add('active');
+            if (btn) btn.classList.add('active');
         }
 
         const formatMoney = (val) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
@@ -675,11 +770,55 @@ DASHBOARD_HTML = """
             }
         }
 
+        async function runBacktest() {
+            try {
+                const strat = document.getElementById('bt_strategy').value;
+                const prov = document.getElementById('bt_provider').value;
+                
+                document.getElementById('bt_run_btn').disabled = true;
+                document.getElementById('bt_run_btn').textContent = '⏳ Starting...';
+                document.getElementById('bt_results_container').style.display = 'none';
+                document.getElementById('bt_report_target').innerHTML = '';
+                const oldRendered = document.getElementById('bt_report_rendered');
+                if (oldRendered) oldRendered.remove();
+                
+                const statusMsg = document.getElementById('bt_status_msg');
+                statusMsg.style.display = 'block';
+                statusMsg.textContent = '⏳ Backtest submitted, waiting for results...';
+                
+                const res = await fetch('/api/control/backtest', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        strategies: [strat],
+                        providers: [prov]
+                    })
+                });
+                
+                const data = await res.json();
+                if (!res.ok) {
+                    throw new Error(data.error || 'Request failed');
+                }
+            } catch(e) {
+                const statusMsg = document.getElementById('bt_status_msg');
+                statusMsg.style.display = 'block';
+                statusMsg.style.background = 'rgba(239, 68, 68, 0.1)';
+                statusMsg.style.borderColor = 'rgba(239, 68, 68, 0.2)';
+                statusMsg.style.color = 'var(--danger-color)';
+                statusMsg.textContent = 'Failed: ' + e.message;
+                document.getElementById('bt_run_btn').disabled = false;
+                document.getElementById('bt_run_btn').textContent = '▶ Run Backtest';
+            }
+        }
+
         async function updateBotConfig() {
             try {
+                const providerSelect = document.getElementById('conf_provider');
+                const selectedProviders = Array.from(providerSelect.selectedOptions).map(opt => opt.value);
+                
                 const payload = {
                     symbol: document.getElementById('conf_symbol').value,
-                    provider: document.getElementById('conf_provider').value,
+                    provider: selectedProviders,
                     timeframe: document.getElementById('conf_tf').value,
                     mode: document.getElementById('conf_mode').value,
                     strategy: document.getElementById('conf_strategy').value,
@@ -738,6 +877,9 @@ DASHBOARD_HTML = """
                     document.getElementById('val-trades').textContent = m.trades;
                     document.getElementById('val-open-positions').textContent = (m.positions && m.positions.length) || 0;
                     document.getElementById('val-price').textContent = m.price.toFixed(3);
+                    if (m.config && m.config.symbol) {
+                        document.getElementById('val-price-symbol').textContent = m.config.symbol;
+                    }
                     
                     document.getElementById('val-margin').textContent = formatMoney(m.margin || 0);
                     document.getElementById('val-freemargin').textContent = formatMoney(m.free_margin || m.equity);
@@ -865,8 +1007,9 @@ DASHBOARD_HTML = """
                         
                         // Prevent replacing values if the user is actively typing in them
                         if (document.activeElement !== inSymbol && inSymbol.value === '') inSymbol.value = m.config.symbol;
-                        if (document.activeElement !== inProv && inProv.value === '') {
-                            inProv.value = Array.isArray(m.config.provider) ? m.config.provider.join(', ') : m.config.provider;
+                        if (document.activeElement !== inProv) {
+                            const provs = Array.isArray(m.config.provider) ? m.config.provider : [m.config.provider];
+                            Array.from(inProv.options).forEach(opt => opt.selected = provs.includes(opt.value));
                         }
                         if (document.activeElement !== inTf && inTf.value === '') inTf.value = m.config.timeframe;
                         if (document.activeElement !== inMode && inMode.value === '') inMode.value = m.config.mode;
@@ -889,7 +1032,104 @@ DASHBOARD_HTML = """
                         if (document.activeElement !== inLond) inLond.value = m.config.use_london_open ? 'true' : 'false';
                         if (document.activeElement !== inNy) inNy.value = m.config.use_ny_session ? 'true' : 'false';
                     }
+                    
+                    // Check Backtest status (outside config block so it always runs)
+                    const btStatusMsg = document.getElementById('bt_status_msg');
+                    const btBtn = document.getElementById('bt_run_btn');
+                    
+                    if (m.backtest_status === 'running') {
+                        if (btBtn) {
+                            btBtn.disabled = true;
+                            btBtn.textContent = '⏳ Running Backtest...';
+                        }
+                        if (btStatusMsg) {
+                            btStatusMsg.style.display = 'block';
+                            btStatusMsg.style.background = 'rgba(56, 189, 248, 0.1)';
+                            btStatusMsg.style.borderColor = 'rgba(56, 189, 248, 0.2)';
+                            btStatusMsg.style.color = 'var(--accent-color)';
+                            btStatusMsg.textContent = '⏳ Backtest is running... Please wait.';
+                        }
+                    } else if (m.backtest_status === 'complete' || m.backtest_status === 'error') {
+                        if (btBtn) {
+                            btBtn.disabled = false;
+                            btBtn.textContent = '▶ Run Backtest';
+                        }
+                        
+                        // Parse report if available (only render once)
+                        if (m.backtest_report && !document.getElementById('bt_report_rendered')) {
+                            const container = document.getElementById('bt_results_container');
+                            const target = document.getElementById('bt_report_target');
+                            if (container && target) {
+                                container.style.display = 'block';
+                                
+                                if (m.backtest_report.error) {
+                                    if (btStatusMsg) {
+                                        btStatusMsg.style.display = 'block';
+                                        btStatusMsg.style.background = 'rgba(239, 68, 68, 0.1)';
+                                        btStatusMsg.style.borderColor = 'rgba(239, 68, 68, 0.2)';
+                                        btStatusMsg.style.color = 'var(--danger-color)';
+                                        btStatusMsg.textContent = '❌ Backtest failed: ' + m.backtest_report.error;
+                                    }
+                                    target.innerHTML = `<div id="bt_report_rendered"></div>`;
+                                } else if (m.backtest_report.results && m.backtest_report.results.length > 0) {
+                                    if (btStatusMsg) {
+                                        btStatusMsg.style.display = 'block';
+                                        btStatusMsg.style.background = 'rgba(16, 185, 129, 0.1)';
+                                        btStatusMsg.style.borderColor = 'rgba(16, 185, 129, 0.2)';
+                                        btStatusMsg.style.color = 'var(--success-color)';
+                                        btStatusMsg.textContent = '✅ Backtest complete! ' + m.backtest_report.results.length + ' result(s) found.';
+                                    }
+                                    let tableHTML = `
+                                        <table id="bt_report_rendered" style="width: 100%; text-align: left; border-collapse: collapse;">
+                                            <thead>
+                                                <tr>
+                                                    <th style="padding: 8px; border-bottom: 1px solid var(--panel-border);">Strategy</th>
+                                                    <th style="padding: 8px; border-bottom: 1px solid var(--panel-border);">Provider</th>
+                                                    <th style="padding: 8px; border-bottom: 1px solid var(--panel-border);">Symbol</th>
+                                                    <th style="padding: 8px; border-bottom: 1px solid var(--panel-border);">Timeframe</th>
+                                                    <th style="padding: 8px; border-bottom: 1px solid var(--panel-border);">Return %</th>
+                                                    <th style="padding: 8px; border-bottom: 1px solid var(--panel-border);">Trades</th>
+                                                    <th style="padding: 8px; border-bottom: 1px solid var(--panel-border);">Win Rate</th>
+                                                    <th style="padding: 8px; border-bottom: 1px solid var(--panel-border);">Max DD</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                    `;
+                                    const sortedResults = [...m.backtest_report.results].sort((a,b) => b.result.total_return_pct - a.result.total_return_pct);
+                                    sortedResults.forEach(r => {
+                                        tableHTML += `
+                                            <tr>
+                                                <td style="padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.05);">${r.strategy}</td>
+                                                <td style="padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.05);">${r.provider}</td>
+                                                <td style="padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.05);">${r.symbol || '-'}</td>
+                                                <td style="padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.05);">${r.timeframe || '-'}</td>
+                                                <td style="padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); color: ${r.result.total_return_pct >= 0 ? 'var(--success-color)' : 'var(--danger-color)'}">${r.result.total_return_pct.toFixed(2)}%</td>
+                                                <td style="padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.05);">${r.result.total_trades}</td>
+                                                <td style="padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.05);">${r.result.win_rate.toFixed(1)}%</td>
+                                                <td style="padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); color: var(--danger-color);">${r.result.max_drawdown_pct.toFixed(2)}%</td>
+                                            </tr>
+                                        `;
+                                    });
+                                    tableHTML += `</tbody></table>`;
+                                    target.innerHTML = tableHTML;
+                                } else {
+                                    if (btStatusMsg) {
+                                        btStatusMsg.style.display = 'block';
+                                        btStatusMsg.style.background = 'rgba(245, 158, 11, 0.1)';
+                                        btStatusMsg.style.borderColor = 'rgba(245, 158, 11, 0.2)';
+                                        btStatusMsg.style.color = 'var(--warning-color)';
+                                        btStatusMsg.textContent = '⚠️ Backtest completed but no results were returned.';
+                                    }
+                                    target.innerHTML = '<div id="bt_report_rendered"></div>';
+                                }
+                            }
+                        }
+                    } else {
+                        // idle state — hide status msg
+                        if (btStatusMsg) btStatusMsg.style.display = 'none';
+                    }
                 }
+
 
                 // Fetch logs
                 const logsRes = await fetch('/logs');
@@ -975,6 +1215,77 @@ DASHBOARD_HTML = """
 
         updateDashboard();
         setInterval(updateDashboard, 1000);
+
+        // Market Watchlist
+        let marketPollInterval = null;
+        
+        async function fetchMarketPrices() {
+            try {
+                const res = await fetch('/api/market/prices');
+                if (!res.ok) throw new Error('Failed to fetch market prices');
+                const data = await res.json();
+                
+                const tbody = document.getElementById('mkt_table_body');
+                const statusDiv = document.getElementById('mkt_status');
+                
+                if (!data.prices || data.prices.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: var(--text-secondary);">No prices available</td></tr>';
+                    return;
+                }
+                
+                statusDiv.style.display = 'none';
+                tbody.innerHTML = '';
+                
+                data.prices.forEach(p => {
+                    const tr = document.createElement('tr');
+                    const isActive = p.last > 0;
+                    const spread = (isActive && p.ask > 0 && p.bid > 0) ? (p.ask - p.bid).toFixed(4) : '-';
+                    const priceDisplay = isActive ? p.last.toFixed(p.last > 100 ? 3 : 5) : '-';
+                    const bidDisplay = (isActive && p.bid > 0) ? p.bid.toFixed(p.bid > 100 ? 3 : 5) : '-';
+                    const askDisplay = (isActive && p.ask > 0) ? p.ask.toFixed(p.ask > 100 ? 3 : 5) : '-';
+                    const statusText = isActive ? '🟢 Live' : '⚫ N/A';
+                    const statusColor = isActive ? 'var(--success-color)' : 'var(--text-secondary)';
+                    const isMainSymbol = p.is_active;
+                    const rowBg = isMainSymbol ? 'rgba(56, 189, 248, 0.05)' : 'transparent';
+                    
+                    tr.innerHTML = `
+                        <td style="padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); background: ${rowBg};">
+                            <span style="font-weight: 600; color: var(--text-primary);">${p.symbol}</span>
+                            ${isMainSymbol ? '<span style="font-size: 10px; margin-left: 6px; padding: 2px 6px; background: rgba(56, 189, 248, 0.15); border-radius: 4px; color: var(--accent-color);">ACTIVE</span>' : ''}
+                        </td>
+                        <td style="padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); background: ${rowBg}; font-family: monospace; font-weight: 600;">${priceDisplay}</td>
+                        <td style="padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); background: ${rowBg}; font-family: monospace; color: var(--success-color);">${bidDisplay}</td>
+                        <td style="padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); background: ${rowBg}; font-family: monospace; color: var(--danger-color);">${askDisplay}</td>
+                        <td style="padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); background: ${rowBg}; font-family: monospace;">${spread}</td>
+                        <td style="padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); background: ${rowBg}; color: ${statusColor};">${statusText}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch(e) {
+                const statusDiv = document.getElementById('mkt_status');
+                statusDiv.style.display = 'block';
+                statusDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+                statusDiv.style.color = 'var(--danger-color)';
+                statusDiv.textContent = 'Error: ' + e.message;
+            }
+        }
+        
+        // Override showTab to manage market polling
+        const _origShowTab = showTab;
+        showTab = function(tabId, btn) {
+            _origShowTab(tabId, btn);
+            if (tabId === 'tab-markets') {
+                fetchMarketPrices();
+                if (!marketPollInterval) {
+                    marketPollInterval = setInterval(fetchMarketPrices, 5000);
+                }
+            } else {
+                if (marketPollInterval) {
+                    clearInterval(marketPollInterval);
+                    marketPollInterval = null;
+                }
+            }
+        };
     </script>
 </body>
 </html>
@@ -1557,6 +1868,18 @@ class WebInterface(BaseInterface):
             "trades": 0,
             "positions": [],
         }
+        self.backtest_status = "idle"
+        self.backtest_report = None
+        self.backtest_thread: Optional[threading.Thread] = None
+        
+        # Market watchlist
+        self.MARKET_WATCHLIST = [
+            "XAUUSDm", "BTCUSDT", "ETHUSDT", "EURUSD", "XAGUSD",
+            "GBPUSD", "USDJPY", "BTCUSD"
+        ]
+        self._market_price_cache = {}
+        self._market_cache_time = 0
+        self._market_cache_ttl = 2.0  # seconds
 
     def log(self, message: str, level: str = "info"):
         timestamp = datetime.now().strftime("%H:%M:%S")
@@ -1577,6 +1900,73 @@ class WebInterface(BaseInterface):
     def update_metrics(self, metrics: dict):
         with self._lock:
             self.metrics.update(metrics)
+
+    def run_backtest_task(self, strategies: list, providers: list):
+        with self._lock:
+            self.backtest_status = "running"
+            self.backtest_report = None
+        
+        try:
+            report = run_strategy_comparison(strategies=strategies, providers=providers)
+            with self._lock:
+                self.backtest_status = "complete"
+                self.backtest_report = report.to_dict() if report else None
+        except Exception as e:
+            with self._lock:
+                self.backtest_status = "error"
+                self.backtest_report = {"error": str(e)}
+
+    def get_market_prices(self):
+        """Fetch prices for all watchlist symbols from the primary exchange."""
+        import time as _time
+        now = _time.time()
+        
+        # Return cached if fresh
+        if now - self._market_cache_time < self._market_cache_ttl and self._market_price_cache:
+            return self._market_price_cache
+        
+        active_symbol = self.config.symbol if self.config else "XAUUSDm"
+        prices = []
+        
+        # Get the trading engine reference
+        engine = getattr(self, '_engine', None)
+        primary_exchange = None
+        if engine and hasattr(engine, 'exchanges') and engine.exchanges:
+            primary_exchange = engine.exchanges[0]
+        
+        for symbol in self.MARKET_WATCHLIST:
+            entry = {
+                "symbol": symbol,
+                "last": 0.0,
+                "bid": 0.0,
+                "ask": 0.0,
+                "is_active": symbol == active_symbol,
+            }
+            
+            # If this is the active symbol, use the metrics price
+            if symbol == active_symbol:
+                with self._lock:
+                    entry["last"] = self.metrics.get("price", 0.0)
+                    entry["bid"] = entry["last"] - 0.02
+                    entry["ask"] = entry["last"] + 0.02
+            elif primary_exchange:
+                try:
+                    price = primary_exchange.get_price(symbol)
+                    if price and price > 0:
+                        entry["last"] = price
+                        entry["bid"] = price - 0.02
+                        entry["ask"] = price + 0.02
+                except Exception:
+                    pass
+            
+            prices.append(entry)
+        
+        # Sort: active symbol first, then by symbol name
+        prices.sort(key=lambda p: (0 if p["is_active"] else 1, p["symbol"]))
+        
+        self._market_price_cache = prices
+        self._market_cache_time = now
+        return prices
 
     def _make_handler(self):
         parent = self
@@ -1601,6 +1991,8 @@ class WebInterface(BaseInterface):
                         payload = dict(parent.metrics)
                         if parent.config:
                             payload["config"] = parent.config.to_dict()
+                        payload["backtest_status"] = parent.backtest_status
+                        payload["backtest_report"] = parent.backtest_report
                         return self._json(payload)
                 if self.path == "/logs":
                     with parent._lock:
@@ -1620,6 +2012,12 @@ class WebInterface(BaseInterface):
                     self.end_headers()
                     self.wfile.write(html)
                     return
+                if self.path == "/api/market/prices":
+                    try:
+                        prices = parent.get_market_prices()
+                        return self._json({"prices": prices})
+                    except Exception as e:
+                        return self._json({"error": str(e)}, 500)
                 if self.path == "/":
                     html = DASHBOARD_HTML.encode("utf-8")
                     self.send_response(200)
@@ -1650,6 +2048,31 @@ class WebInterface(BaseInterface):
                     if parent.on_close_all_callback:
                         parent.on_close_all_callback()
                     return self._json({"ok": True})
+                if self.path == "/api/control/backtest":
+                    content_length = int(self.headers.get("Content-Length", 0))
+                    post_data = self.rfile.read(content_length)
+                    data = json.loads(post_data.decode("utf-8")) if post_data else {}
+                    
+                    strategies = data.get("strategies", ["HFT"])
+                    if "all" in strategies:
+                        strategies = None
+                        
+                    providers = data.get("providers", ["simulator"])
+                    if "all" in providers:
+                        providers = ["simulator", "ostium", "exness", "ccxt"]
+                        
+                    with parent._lock:
+                        if parent.backtest_status == "running":
+                            return self._json({"error": "Backtest already running"}, 400)
+                        
+                        parent.backtest_thread = threading.Thread(
+                            target=parent.run_backtest_task,
+                            args=(strategies, providers),
+                            daemon=True
+                        )
+                        parent.backtest_thread.start()
+                    
+                    return self._json({"ok": True, "message": "Backtest started"})
                 if self.path == "/api/control/restart":
                     # For a clean restart, we want to run this slightly deferred so the response sends cleanly.
                     if parent.on_restart_callback:

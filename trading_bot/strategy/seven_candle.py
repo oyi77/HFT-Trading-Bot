@@ -22,17 +22,20 @@ class SevenCandleConfig:
     lots: float = 0.01
 
     # Number of consecutive candles
-    candle_count: int = 7
+    candle_count: int = 5  # Reduced from 7 for more signals
+
+    # Minimum percentage of candles that must match direction
+    min_match_pct: float = 0.8  # 80% = 4/5 candles must agree
 
     # ATR-based stops
     use_atr_stops: bool = True
     atr_period: int = 14
-    atr_multiplier_sl: float = 2.0
-    atr_multiplier_tp: float = 3.0
+    atr_multiplier_sl: float = 1.5
+    atr_multiplier_tp: float = 2.5
 
     # Alternative: fixed pips
-    fixed_sl_pips: int = 100
-    fixed_tp_pips: int = 200
+    fixed_sl_pips: int = 50
+    fixed_tp_pips: int = 120
 
     # Confirmation
     require_close: bool = True  # Wait for candle close
@@ -151,11 +154,14 @@ class SevenCandleStrategy(Strategy):
         if len(recent_closes) < n:
             return None
 
-        # Check if all candles are bullish (close increasing)
-        all_bullish = all(recent_closes[i] < recent_closes[i + 1] for i in range(n - 1))
-
-        # Check if all candles are bearish (close decreasing)
-        all_bearish = all(recent_closes[i] > recent_closes[i + 1] for i in range(n - 1))
+        # Check if most candles are bullish (close increasing)
+        bullish_count = sum(1 for i in range(n - 1) if recent_closes[i] < recent_closes[i + 1])
+        bearish_count = sum(1 for i in range(n - 1) if recent_closes[i] > recent_closes[i + 1])
+        
+        min_required = int((n - 1) * self.config.min_match_pct)
+        
+        mostly_bullish = bullish_count >= min_required
+        mostly_bearish = bearish_count >= min_required
 
         # Get breakout levels
         seventh_high = recent_highs[-1]
@@ -164,7 +170,7 @@ class SevenCandleStrategy(Strategy):
         current_price = self.closes[-1]
 
         # Bullish breakout: price breaks above 7th candle's high
-        if all_bullish and current_price > seventh_high:
+        if mostly_bullish and current_price > seventh_high:
             sl, tp = self._calculate_sl_tp(bid, ask, True, point)
 
             return {
@@ -176,7 +182,7 @@ class SevenCandleStrategy(Strategy):
             }
 
         # Bearish breakout: price breaks below 7th candle's low
-        if all_bearish and current_price < seventh_low:
+        if mostly_bearish and current_price < seventh_low:
             sl, tp = self._calculate_sl_tp(bid, ask, False, point)
 
             return {

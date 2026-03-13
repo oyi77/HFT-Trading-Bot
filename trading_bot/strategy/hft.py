@@ -28,7 +28,7 @@ class HFTConfig:
 
     # Momentum parameters
     momentum_lookback: int = 10  # Ticks for momentum calculation
-    momentum_threshold: float = 0.0001  # Increased threshold for XAU volatility
+    momentum_threshold: float = 0.00005  # Lowered for more signals on XAU
 
     # Order book parameters
     spread_threshold: float = 0.0001  # 0.01% spread threshold
@@ -53,8 +53,8 @@ class HFTConfig:
     cooldown_after_loss: int = 60  # Seconds to cooldown after loss
 
     # Volatility filter - adjusted for XAU volatility
-    min_volatility: float = 0.001  # Minimum volatility to trade (increased)
-    max_volatility: float = 0.01  # Maximum volatility (increased significantly)
+    min_volatility: float = 0.0005  # Minimum volatility to trade
+    max_volatility: float = 0.02  # Maximum volatility (widened for XAU)
 
 
 class HFTStrategy(Strategy):

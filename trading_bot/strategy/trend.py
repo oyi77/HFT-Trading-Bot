@@ -15,18 +15,18 @@ class TrendConfig:
     """Configuration for Trend Strategy"""
 
     lots: float = 0.01
-    ema_fast: int = 20
-    ema_slow: int = 50
-    stop_loss_pips: int = 50
-    take_profit_pips: int = 100
+    ema_fast: int = 9
+    ema_slow: int = 21
+    stop_loss_pips: int = 30
+    take_profit_pips: int = 75
     use_rsi_filter: bool = True
     rsi_period: int = 14
     rsi_overbought: float = 70.0
     rsi_oversold: float = 30.0
-    use_atr_sizing: bool = False
+    use_atr_sizing: bool = True
     atr_period: int = 14
-    atr_sl_multiplier: float = 2.0
-    atr_tp_multiplier: float = 3.0
+    atr_sl_multiplier: float = 1.5
+    atr_tp_multiplier: float = 2.5
     point_value: float = 0.01
 
 

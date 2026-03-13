@@ -117,6 +117,9 @@ class TradingEngine:
     def __init__(self, config: InterfaceConfig, interface=None):
         self.config = config
         self.interface = interface
+        # Wire engine back-reference so interface can access exchanges
+        if interface is not None:
+            interface._engine = self
 
         self.running = False
         self.paused = False
@@ -185,7 +188,7 @@ class TradingEngine:
                     if self.interface:
                         self.interface.log("Connected to Ostium DEX", "info")
     
-                elif provider == "exness" and self.config.mode == "frontest":
+                elif provider_str == "exness" and self.config.mode == "frontest":
                     account_id = os.getenv("EXNESS_ACCOUNT_ID")
                     token = os.getenv("EXNESS_TOKEN")
                     server = os.getenv("EXNESS_SERVER", "trial6")
@@ -210,7 +213,7 @@ class TradingEngine:
                     if self.interface:
                         self.interface.log(f"Connected to Exness Demo: {server}", "info")
     
-                elif provider == "bybit" and self.config.mode == "frontest":
+                elif provider_str == "bybit" and self.config.mode == "frontest":
                     api_key = os.getenv("BYBIT_API_KEY")
                     api_secret = os.getenv("BYBIT_API_SECRET")
     

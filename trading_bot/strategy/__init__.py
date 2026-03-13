@@ -10,6 +10,8 @@ Available strategies:
 - IBBreakoutStrategy: Initial Balance breakout (+411% documented)
 - ScalpingStrategy: Simple momentum-based scalping
 - SevenCandleStrategy: 7 Candle Breakout strategy
+- BBMacdRsiStrategy: Bollinger Band + MACD + RSI mean reversion & breakout
+- AIStrategy: ML-powered GradientBoosting strategy with self-training
 """
 
 from trading_bot.strategy.xau_hedging import XAUHedgingStrategy, XAUHedgingConfig
@@ -20,6 +22,8 @@ from trading_bot.strategy.nfi import NFIStrategy, NFIConfig
 from trading_bot.strategy.ib_breakout import IBBreakoutStrategy, IBBreakoutConfig
 from trading_bot.strategy.momentum import MomentumGridStrategy, MomentumGridConfig
 from trading_bot.strategy.seven_candle import SevenCandleStrategy, SevenCandleConfig
+from trading_bot.strategy.bb_macd_rsi import BBMacdRsiStrategy, BBMacdRsiConfig
+from trading_bot.strategy.ai_strategy import AIStrategy, AIStrategyConfig
 
 __all__ = [
     "XAUHedgingStrategy",
@@ -38,4 +42,9 @@ __all__ = [
     "MomentumGridConfig",
     "SevenCandleStrategy",
     "SevenCandleConfig",
+    "BBMacdRsiStrategy",
+    "BBMacdRsiConfig",
+    "AIStrategy",
+    "AIStrategyConfig",
 ]
+

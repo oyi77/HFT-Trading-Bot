@@ -21,7 +21,18 @@ from trading_bot.strategy import (
     TrendConfig,
     HFTStrategy,
     HFTConfig,
+    NFIStrategy,
+    NFIConfig,
+    IBBreakoutStrategy,
+    IBBreakoutConfig,
+    SevenCandleStrategy,
+    SevenCandleConfig,
+    BBMacdRsiStrategy,
+    BBMacdRsiConfig,
+    AIStrategy,
+    AIStrategyConfig,
 )
+from trading_bot.strategy.scalping import ScalpingStrategy, ScalpingConfig
 from trading_bot.exchange.base import Exchange
 from trading_bot.exchange.simulator import SimulatorExchange
 from trading_bot.core.backtest_engine import BacktestEngine, BacktestResult
@@ -195,9 +206,58 @@ class UnifiedBacktestRunner:
             StrategyBacktestConfig(
                 strategy_name="HFT",
                 strategy_class=HFTStrategy,
-                config=HFTConfig(lots=0.01, profit_target_pips=3, stop_loss_pips=5),
+                config=HFTConfig(lots=0.01, profit_target_pips=10, stop_loss_pips=8),
                 symbols=["XAUUSDm"],
                 timeframes=["5m", "15m"],
+            ),
+            StrategyBacktestConfig(
+                strategy_name="NFI_Normal",
+                strategy_class=NFIStrategy,
+                config=NFIConfig(lots=0.01, mode="normal"),
+                symbols=["XAUUSDm"],
+                timeframes=["1h", "4h"],
+            ),
+            StrategyBacktestConfig(
+                strategy_name="NFI_Scalp",
+                strategy_class=NFIStrategy,
+                config=NFIConfig(lots=0.01, mode="scalp"),
+                symbols=["XAUUSDm"],
+                timeframes=["5m", "15m"],
+            ),
+            StrategyBacktestConfig(
+                strategy_name="IB_Breakout",
+                strategy_class=IBBreakoutStrategy,
+                config=IBBreakoutConfig(lots=0.01),
+                symbols=["XAUUSDm"],
+                timeframes=["1h"],
+            ),
+            StrategyBacktestConfig(
+                strategy_name="Scalping",
+                strategy_class=ScalpingStrategy,
+                config=ScalpingConfig(lots=0.01),
+                symbols=["XAUUSDm"],
+                timeframes=["5m", "15m"],
+            ),
+            StrategyBacktestConfig(
+                strategy_name="SevenCandle",
+                strategy_class=SevenCandleStrategy,
+                config=SevenCandleConfig(lots=0.01),
+                symbols=["XAUUSDm"],
+                timeframes=["1h", "4h"],
+            ),
+            StrategyBacktestConfig(
+                strategy_name="BB_MACD_RSI",
+                strategy_class=BBMacdRsiStrategy,
+                config=BBMacdRsiConfig(lots=0.01),
+                symbols=["XAUUSDm"],
+                timeframes=["1h", "4h"],
+            ),
+            StrategyBacktestConfig(
+                strategy_name="AI_Strategy",
+                strategy_class=AIStrategy,
+                config=AIStrategyConfig(lots=0.01, min_training_samples=50, retrain_interval=25),
+                symbols=["XAUUSDm"],
+                timeframes=["1h", "4h"],
             ),
         ]
 
