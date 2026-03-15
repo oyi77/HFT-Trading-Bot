@@ -338,7 +338,8 @@ class TUIInterface(BaseInterface):
             fcntl.fcntl(fd, fcntl.F_SETFL, old_flags | os.O_NONBLOCK)
 
             return fd, old_term, old_flags
-        except Exception:
+        except Exception as e:
+            self.log(f"Terminal setup error: {e}", "debug")
             return None, None, None
 
     def _restore_terminal(self, fd, old_term, old_flags):
@@ -351,8 +352,8 @@ class TUIInterface(BaseInterface):
                 termios.tcsetattr(fd, termios.TCSAFLUSH, old_term)
             if fd and old_flags is not None:
                 fcntl.fcntl(fd, fcntl.F_SETFL, old_flags)
-        except Exception:
-            pass
+        except Exception as e:
+            self.log(f"Terminal restore error: {e}", "debug")
 
     def _read_key(self):
         """Read a single key if available"""

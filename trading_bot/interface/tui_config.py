@@ -937,13 +937,15 @@ class TUIConfigInterface(BaseInterface):
         self.active = False
 
     def _on_field_select(self, field: ConfigField):
+        """Hook for field selection. Override in subclasses if needed."""
         pass
 
     def _on_config_change(self, field_name: str, new_value: Any):
+        """Hook for config change. Override in subclasses if needed."""
         pass
 
     def run(self):
-        """Run config interface (placeholder - usually called from main TUI)"""
+        """Run config interface."""
         self.active = True
         self._render()
 

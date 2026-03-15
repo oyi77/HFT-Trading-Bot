@@ -6,7 +6,10 @@ import time
 import threading
 import os
 import asyncio
+import logging
 from typing import Optional, Dict, Any, List, Union
+
+logger = logging.getLogger(__name__)
 from dataclasses import dataclass
 
 from trading_bot.exchange.simulator import SimulatorExchange
@@ -14,10 +17,39 @@ from trading_bot.exchange.ostium import OstiumExchange, create_ostium_exchange
 from trading_bot.exchange.exness_exchange import ExnessExchange, create_exness_exchange
 from trading_bot.exchange.bybit_exchange import BybitExchange, create_bybit_exchange
 from trading_bot.strategy.xau_hedging import XAUHedgingStrategy, XAUHedgingConfig
+from trading_bot.strategy.grid import GridStrategy, GridConfig
+from trading_bot.strategy.trend import TrendStrategy, TrendConfig
+from trading_bot.strategy.hft import HFTStrategy, HFTConfig
+from trading_bot.strategy.scalping import ScalpingStrategy, ScalpingConfig
+from trading_bot.strategy.nfi import NFIStrategy, NFIConfig
+from trading_bot.strategy.ib_breakout import IBBreakoutStrategy, IBBreakoutConfig
+from trading_bot.strategy.momentum import MomentumGridStrategy, MomentumGridConfig
+from trading_bot.strategy.seven_candle import SevenCandleStrategy, SevenCandleConfig
+from trading_bot.strategy.bb_macd_rsi import BBMacdRsiStrategy, BBMacdRsiConfig
+from trading_bot.strategy.ai_strategy import AIStrategy, AIStrategyConfig
+from trading_bot.strategy.zerolag import ZeroLagStrategy, ZeroLagConfig
 from trading_bot.interface.base import InterfaceConfig
+from trading_bot.risk.manager import RiskManager
 
 # Type alias for exchanges
 ExchangeType = Union[SimulatorExchange, OstiumExchange, ExnessExchange, BybitExchange]
+
+# Strategy name -> (StrategyClass, ConfigClass) mapping
+# Used by TradingEngine to instantiate the correct strategy from config.strategy string
+STRATEGY_MAP = {
+    "xau_hedging": (XAUHedgingStrategy, XAUHedgingConfig),
+    "grid": (GridStrategy, GridConfig),
+    "trend": (TrendStrategy, TrendConfig),
+    "hft": (HFTStrategy, HFTConfig),
+    "scalping": (ScalpingStrategy, ScalpingConfig),
+    "nfi": (NFIStrategy, NFIConfig),
+    "ib_breakout": (IBBreakoutStrategy, IBBreakoutConfig),
+    "momentum": (MomentumGridStrategy, MomentumGridConfig),
+    "seven_candle": (SevenCandleStrategy, SevenCandleConfig),
+    "bb_macd_rsi": (BBMacdRsiStrategy, BBMacdRsiConfig),
+    "ai": (AIStrategy, AIStrategyConfig),
+    "zerolag": (ZeroLagStrategy, ZeroLagConfig),
+}
 
 
 @dataclass
@@ -47,52 +79,26 @@ class TradingMetrics:
     def to_dict(self) -> dict:
         import dataclasses
         
-        serialized_positions = []
-        for p in self.positions:
-            if dataclasses.is_dataclass(p):
-                d = dataclasses.asdict(p)
-                if hasattr(p, "provider") and "provider" not in d:
-                    d["provider"] = p.provider
+        def serialize(obj):
+            if dataclasses.is_dataclass(obj):
+                d = dataclasses.asdict(obj)
+                # Ensure provider and ID prefixing (standard for all UI components)
+                provider = getattr(obj, "provider", d.get("provider", "UNK"))
+                prefix = f"{provider[:3].upper()}-"
+                
+                if "id" in d and not str(d["id"]).startswith(prefix):
+                    d["id"] = f"{prefix}{d['id']}"
+                if "unrealized_pnl" not in d and hasattr(obj, "unrealized_pnl"):
+                    d["unrealized_pnl"] = obj.unrealized_pnl
+                return d
+            elif isinstance(obj, dict):
+                d = dict(obj)
                 prefix = f"{d.get('provider', 'UNK')[:3].upper()}-"
                 if "id" in d and not str(d["id"]).startswith(prefix):
                     d["id"] = f"{prefix}{d['id']}"
-                if hasattr(p, "unrealized_pnl") and "unrealized_pnl" not in d:
-                    d["unrealized_pnl"] = p.unrealized_pnl
-                serialized_positions.append(d)
-            elif hasattr(p, "to_dict"):
-                d = p.to_dict()
-                prefix = f"{getattr(p, 'provider', 'UNK')[:3].upper()}-"
-                if "id" in d and not str(d["id"]).startswith(prefix):
-                    d["id"] = f"{prefix}{d['id']}"
-                serialized_positions.append(d)
-            elif hasattr(p, "__dict__"):
-                d = dict(p.__dict__)
-                prefix = f"{getattr(p, 'provider', 'UNK')[:3].upper()}-"
-                if "id" in d and not str(d["id"]).startswith(prefix):
-                    d["id"] = f"{prefix}{d['id']}"
-                serialized_positions.append(d)
-            else:
-                d = dict(p) if isinstance(p, dict) else p
-                if isinstance(d, dict):
-                    prefix = f"{d.get('provider', 'UNK')[:3].upper()}-"
-                    if "id" in d and not str(d["id"]).startswith(prefix):
-                        d["id"] = f"{prefix}{d['id']}"
-                serialized_positions.append(d)
-                
-        serialized_orders = []
-        for o in getattr(self, "orders", []):
-            if dataclasses.is_dataclass(o):
-                d = dataclasses.asdict(o)
-                if hasattr(o, "provider") and "provider" not in d:
-                    d["provider"] = o.provider
-                serialized_orders.append(d)
-            elif hasattr(o, "to_dict"):
-                serialized_orders.append(o.to_dict())
-            elif hasattr(o, "__dict__"):
-                serialized_orders.append(o.__dict__)
-            else:
-                serialized_orders.append(o)
-                
+                return d
+            return str(obj)
+
         return {
             "price": self.price,
             "balance": self.balance,
@@ -102,9 +108,9 @@ class TradingMetrics:
             "margin": self.margin,
             "free_margin": self.free_margin,
             "trades": self.trades,
-            "positions": serialized_positions,
-            "orders": serialized_orders,
-            "trade_history": self.trade_history,
+            "positions": [serialize(p) for p in self.positions],
+            "orders": [serialize(o) for o in self.orders],
+            "trade_history": [serialize(t) for t in self.trade_history],
         }
 
 
@@ -130,11 +136,15 @@ class TradingEngine:
         self.exchanges: List[ExchangeType] = []
         self.strategy: Optional[XAUHedgingStrategy] = None
 
+        # Risk Management
+        self.risk_manager = RiskManager(self.config)
+        self.last_realized_pnl = 0.0
+
         # Metrics
         self.metrics = TradingMetrics()
 
-    def initialize(self) -> bool:
-        """Initialize trading components"""
+    async def _initialize_async(self) -> bool:
+        """Initialize trading components asynchronously"""
         try:
             # Create exchanges based on provider list and mode
             valid_providers = set()
@@ -162,19 +172,11 @@ class TradingEngine:
                             self.interface.log("OSTIUM_PRIVATE_KEY not found", "error")
                         continue
     
-                    try:
-                        loop = asyncio.get_event_loop()
-                    except RuntimeError:
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-    
-                    ostium = loop.run_until_complete(
-                        create_ostium_exchange(
-                            private_key,
-                            rpc_url,
-                            chain_id,
-                            leverage=min(self.config.leverage, 50),
-                        )
+                    ostium = await create_ostium_exchange(
+                        private_key,
+                        rpc_url,
+                        chain_id,
+                        leverage=min(self.config.leverage, 50),
                     )
     
                     if not ostium:
@@ -250,13 +252,31 @@ class TradingEngine:
                     self.exchanges.append(sim)
                     valid_providers.add("simulator")
 
-            # Create strategy
-            strategy_config = XAUHedgingConfig(
-                lots=self.config.lot,
-                stop_loss=int(self.config.sl_pips),
-                take_profit=int(self.config.tp_pips),
-            )
-            self.strategy = XAUHedgingStrategy(strategy_config)
+            # Create strategy based on config.strategy name
+            strategy_name = getattr(self.config, 'strategy', 'xau_hedging')
+            strategy_entry = STRATEGY_MAP.get(strategy_name)
+            if strategy_entry:
+                StrategyClass, ConfigClass = strategy_entry
+                strategy_config = ConfigClass(lots=self.config.lot)
+                # Forward SL/TP for configs that support them
+                if hasattr(strategy_config, 'stop_loss'):
+                    strategy_config.stop_loss = int(self.config.sl_pips)
+                if hasattr(strategy_config, 'take_profit'):
+                    strategy_config.take_profit = int(self.config.tp_pips)
+                if hasattr(strategy_config, 'sl_pips'):
+                    strategy_config.sl_pips = float(self.config.sl_pips)
+                if hasattr(strategy_config, 'tp_pips'):
+                    strategy_config.tp_pips = float(self.config.tp_pips)
+                self.strategy = StrategyClass(strategy_config)
+            else:
+                # Fallback to XAU Hedging
+                strategy_config = XAUHedgingConfig(
+                    lots=self.config.lot,
+                    stop_loss=int(self.config.sl_pips),
+                    take_profit=int(self.config.tp_pips),
+                )
+                self.strategy = XAUHedgingStrategy(strategy_config)
+                strategy_name = 'xau_hedging'
 
             total_balance = sum(getattr(exchange, "balance", self.config.balance) for exchange in self.exchanges)
             total_equity = sum(getattr(exchange, "equity", self.config.balance) for exchange in self.exchanges)
@@ -280,31 +300,43 @@ class TradingEngine:
 
     def start(self):
         """Start trading loop"""
-        if not self.initialize():
-            return False
-
         self._stopped = False
         self.running = True
         self.paused = False
 
         # Start trading thread
-        self.thread = threading.Thread(target=self._trading_loop, daemon=True)
+        self.thread = threading.Thread(target=self._thread_runner, daemon=True)
         self.thread.start()
-
-        if self.interface:
-            self.interface.log("Trading started!", "info")
 
         return True
 
-    def _trading_loop(self):
-        """Main trading loop"""
+    def _thread_runner(self):
+        """Entry point for the background thread to run the asyncio event loop"""
+        try:
+            self._loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._loop)
+            self._loop.run_until_complete(self._async_trading_loop())
+        except Exception as e:
+            logger.error(f"Trading loop crashed: {e}")
+
+    async def _async_trading_loop(self):
+        """Main async trading loop inside the daemon thread"""
+        success = await self._initialize_async()
+        if not success:
+            logger.error("Failed to initialize TradingEngine")
+            self.running = False
+            return
+            
+        if self.interface:
+            self.interface.log("Trading started!", "info")
+
         while self.running:
             if not self.paused:
-                self._update()
-            time.sleep(0.5)  # Update every 500ms
+                await self._update()
+            await asyncio.sleep(0.5)  # Update every 500ms
 
-    def _update(self):
-        """Single trading update"""
+    async def _update(self):
+        """Single asynchronous trading update"""
         try:
             if not self.exchanges or not self.strategy:
                 return
@@ -323,41 +355,51 @@ class TradingEngine:
             # Using the primary exchange to dictate the market price feed
             primary_exchange = self.exchanges[0]
             if hasattr(primary_exchange, "update_price"):
-                primary_exchange.update_price()
+                if asyncio.iscoroutinefunction(primary_exchange.update_price):
+                    await primary_exchange.update_price()
+                else:
+                    primary_exchange.update_price()
             global_market_price = primary_exchange.get_price() if hasattr(primary_exchange, "get_price") else None
 
             for exchange in self.exchanges:
                 # Update price
                 if exchange is not primary_exchange:
-                    if isinstance(exchange, SimulatorExchange) and global_market_price is not None:
-                        exchange.update_price(new_price=global_market_price)
-                    elif hasattr(exchange, "update_price"):
-                        exchange.update_price()
+                    if hasattr(exchange, "update_price"):
+                        if global_market_price is not None:
+                            try:
+                                if asyncio.iscoroutinefunction(exchange.update_price):
+                                    await exchange.update_price(new_price=global_market_price)
+                                else:
+                                    exchange.update_price(new_price=global_market_price)
+                                continue
+                            except TypeError:
+                                pass
+                                
+                        if asyncio.iscoroutinefunction(exchange.update_price):
+                            await exchange.update_price()
+                        else:
+                            exchange.update_price()
     
                 broker_name = getattr(exchange, "name", exchange.__class__.__name__)
+                if not isinstance(broker_name, str):
+                    broker_name = str(exchange.__class__.__name__)
                 
                 # Get positions and inject provider
                 positions = exchange.get_positions()
                 for pos in positions:
-                    if isinstance(pos, dict):
-                        pos["provider"] = broker_name
-                    else:
-                        try:
-                            pos.provider = broker_name
-                        except AttributeError:
-                            # Fallback if slots or immutable, wrap it or use custom property
-                            pass
+                    if hasattr(pos, "provider"):
+                        pos.provider = broker_name
                         
                     # Compute unrealized logic if missing for simulators 
-                    if not isinstance(pos, dict) and not hasattr(pos, "unrealized_pnl"):
+                    if not hasattr(pos, "unrealized_pnl") or not getattr(pos, "unrealized_pnl", 0):
                         if hasattr(pos, "calculate_profit") and hasattr(exchange, "get_price"):
                             try:
-                                pos.unrealized_pnl = pos.calculate_profit(exchange.get_price())
-                            except Exception:
-                                pass
+                                # Safe pass if it fails to compute on dummy instances
+                                pos.unrealized_pnl = pos.calculate_profit(getattr(exchange, "current_price", 0))
+                            except Exception as e:
+                                logger.debug(f"Failed to calculate profit: {e}")
                                 
-                    unrealized = pos.get("unrealized_pnl", 0.0) if isinstance(pos, dict) else getattr(pos, "unrealized_pnl", 0.0)
-                    aggregated_unrealized_pnl += unrealized or 0.0
+                    aggregated_unrealized_pnl += getattr(pos, "unrealized_pnl", 0.0) or 0.0
                         
                 aggregated_positions.extend(positions)
                 
@@ -365,47 +407,47 @@ class TradingEngine:
                 orders = []
                 if hasattr(exchange, "get_orders"):
                     try:
-                        orders = exchange.get_orders() or []
-                    except Exception:
-                        pass
-                elif hasattr(exchange, "exchange") and hasattr(exchange.exchange, "fetch_open_orders"):
-                    try:
-                        orders = exchange.exchange.fetch_open_orders() or []
-                    except Exception:
-                        pass
+                        orders_res = getattr(exchange, "get_orders")()
+                        if hasattr(orders_res, "__iter__"):
+                            orders = orders_res
+                    except Exception as e:
+                        val = getattr(exchange, "name", "Exchange")
+                        logger.debug(f"Failed to get orders for {val}: {e}")
                         
-                for order in orders:
-                    if isinstance(order, dict):
-                        order["provider"] = broker_name
-                    else:
-                        try:
+                try:
+                    for order in orders:
+                        if hasattr(order, "provider"):
                             order.provider = broker_name
-                        except AttributeError:
-                            pass
-                aggregated_orders.extend(orders)
+                    aggregated_orders.extend(orders)
+                except TypeError:
+                    pass
                 
                 # Get trade history and inject provider
                 historical_trades = getattr(exchange, "trades", [])
                 for trade in historical_trades:
-                    # Exclude 'open' action logs since history should reflect closures/results
-                    if isinstance(trade, dict) and trade.get("action") == "open":
-                        continue
-                        
-                    # We inject a copy so we don't dirty the exchange's internal structs if they are dictionaries
                     if isinstance(trade, dict):
+                        if trade.get("action") == "open":
+                            continue
                         trade_copy = dict(trade)
                         trade_copy["provider"] = broker_name
+                        prefix = f"{broker_name[:3].upper()}-"
+                        raw_id = trade_copy.get("id", trade_copy.get("position_id", trade_copy.get("tradeID", trade_copy.get("orderId", "-"))))
+                        if not str(raw_id).startswith(prefix):
+                            trade_copy["id"] = f"{prefix}{raw_id}"
+                        aggregated_trade_history.append(trade_copy)
+                    else:
+                        if hasattr(trade, "action") and trade.action == "open":
+                            continue
+                        
+                        if hasattr(trade, "provider"):
+                            trade.provider = broker_name
+                            
                         # Standardize ID mapping natively for JS tracking
                         prefix = f"{broker_name[:3].upper()}-"
-                        raw_id = trade_copy.get("position_id", trade_copy.get("tradeID", trade_copy.get("orderId", "-")))
-                        trade_copy["id"] = f"{prefix}{raw_id}" if not str(raw_id).startswith(prefix) else raw_id
-                        aggregated_trade_history.append(trade_copy)
-                    elif hasattr(trade, "__dict__"):
-                        trade.provider = broker_name
-                        prefix = f"{broker_name[:3].upper()}-"
-                        raw_id = getattr(trade, "position_id", getattr(trade, "tradeID", getattr(trade, "orderId", "-")))
-                        if not hasattr(trade, "id") or not str(getattr(trade, "id")).startswith(prefix):
-                            trade.id = f"{prefix}{raw_id}" if not str(raw_id).startswith(prefix) else raw_id
+                        raw_id = getattr(trade, "id", getattr(trade, "position_id", getattr(trade, "tradeID", getattr(trade, "orderId", "-"))))
+                        if not str(raw_id).startswith(prefix):
+                            trade.id = f"{prefix}{raw_id}"
+                            
                         aggregated_trade_history.append(trade)
                         
                 # Fetch statistics
@@ -418,16 +460,46 @@ class TradingEngine:
                 aggregated_trades += stats.get("total_trades", len(getattr(exchange, "trades", [])))
                 
             # Handle different exchange types for retrieving market price
-            if isinstance(primary_exchange, OstiumExchange):
-                self.metrics.price = primary_exchange.get_current_price()
-            else:
-                self.metrics.price = primary_exchange.get_price()
-
+            market_price = getattr(primary_exchange, "current_price", None)
+            if market_price is None or not isinstance(market_price, (int, float)):
+                if hasattr(primary_exchange, "get_price"):
+                    try:
+                        market_price = primary_exchange.get_price(self.config.symbol)
+                    except TypeError:
+                        market_price = primary_exchange.get_price()
+            
+            if not isinstance(market_price, (int, float)):
+                market_price = 0.0
+                
+            self.metrics.price = market_price
             self.metrics.positions = aggregated_positions
             self.metrics.orders = aggregated_orders
             
             # Sort historical trades by time if available, otherwise just use them as-is. We cap at 500 to avoid huge payloads.
             self.metrics.trade_history = aggregated_trade_history[-500:]
+
+            # Update Risk Manager with realized PNL delta
+            pnl_delta = aggregated_pnl - self.last_realized_pnl
+            if abs(pnl_delta) > 0.0001:
+                self.risk_manager.update_pnl(pnl_delta)
+                self.last_realized_pnl = aggregated_pnl
+
+            # Check Risk Limits
+            can_trade, risk_reason = self.risk_manager.check(aggregated_equity)
+            if not can_trade:
+                if self.interface:
+                    self.interface.log(f"⚠️ TRADING HALTED: {risk_reason}", "error")
+                # Skip signal processing
+                self.metrics.balance = aggregated_balance
+                self.metrics.equity = aggregated_equity
+                self.metrics.margin = aggregated_margin
+                self.metrics.free_margin = aggregated_free_margin
+                self.metrics.pnl = aggregated_pnl
+                self.metrics.unrealized_pnl = aggregated_unrealized_pnl
+                self.metrics.trades = aggregated_trades
+                if self.interface:
+                    self.interface.update_metrics(self.metrics.to_dict())
+                return
 
             # Get signal from strategy
             bid = self.metrics.price - 0.02
@@ -442,30 +514,27 @@ class TradingEngine:
                 side = side_val.value if hasattr(side_val, "value") else side_val
 
                 for exchange in self.exchanges:
-                    if isinstance(exchange, OstiumExchange):
-                        try:
-                            loop = asyncio.get_event_loop()
-                        except RuntimeError:
-                            loop = asyncio.new_event_loop()
-                            asyncio.set_event_loop(loop)
-    
-                        pos_id = loop.run_until_complete(
-                            exchange.open_position(
+                    try:
+                        if hasattr(exchange, "open_position") and asyncio.iscoroutinefunction(exchange.open_position):
+                            pos_id = await exchange.open_position(
                                 symbol=self.config.symbol,
                                 side=side,
                                 volume=signal["amount"],
                                 sl=signal.get("sl"),
                                 tp=signal.get("tp"),
                             )
-                        )
-                    else:
-                        pos_id = exchange.open_position(
-                            symbol=self.config.symbol,
-                            side=side,
-                            volume=signal["amount"],
-                            sl=signal.get("sl"),
-                            tp=signal.get("tp"),
-                        )
+                        else:
+                            pos_id = exchange.open_position(
+                                symbol=self.config.symbol,
+                                side=side,
+                                volume=signal["amount"],
+                                sl=signal.get("sl"),
+                                tp=signal.get("tp"),
+                            )
+                    except Exception as e:
+                        broker_name = getattr(exchange, "name", exchange.__class__.__name__)
+                        logger.error(f"Failed to open position on {broker_name}: {e}")
+                        pos_id = None
     
                     if pos_id:
                         sl = signal.get("sl", 0)
@@ -512,8 +581,8 @@ class TradingEngine:
             if hasattr(exchange, "close"):
                 try:
                     exchange.close()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to close exchange: {e}")
 
         # Show final stats across all exchanges
         if self.exchanges and self.interface:
@@ -540,6 +609,17 @@ class TradingEngine:
         if self.interface:
             self.interface.log("Trading resumed", "info")
 
+    def _execute_close_safely(self, exchange: ExchangeType, pos_id: str):
+        """Safely execute close operation across threads, handling async exchanges"""
+        if hasattr(exchange, "close_position") and asyncio.iscoroutinefunction(exchange.close_position):
+            if hasattr(self, "_loop") and self._loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(exchange.close_position(pos_id), self._loop)
+                return future.result(timeout=15)
+            else:
+                return asyncio.run(exchange.close_position(pos_id))
+        else:
+            return exchange.close_position(pos_id)
+
     def close_all_positions(self):
         """Close all open positions across all exchanges"""
         if not self.exchanges:
@@ -552,15 +632,7 @@ class TradingEngine:
             
             for pos in positions:
                 try:
-                    if isinstance(exchange, OstiumExchange):
-                        try:
-                            loop = asyncio.get_event_loop()
-                        except RuntimeError:
-                            loop = asyncio.new_event_loop()
-                            asyncio.set_event_loop(loop)
-                        loop.run_until_complete(exchange.close_position(pos.id))
-                    else:
-                        exchange.close_position(pos.id)
+                    self._execute_close_safely(exchange, pos.id)
                 except Exception as e:
                     broker_name = getattr(exchange, "name", exchange.__class__.__name__)
                     if self.interface:
@@ -604,18 +676,10 @@ class TradingEngine:
                 if not any(str(getattr(p, 'id', p.get('id', ''))) in (str(pos_id), str(actual_pos_id)) for p in positions):
                     continue
                     
-                if isinstance(exchange, OstiumExchange):
-                    try:
-                        loop = asyncio.get_event_loop()
-                    except RuntimeError:
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                    loop.run_until_complete(exchange.close_position(actual_pos_id))
-                else:
-                    try:
-                        exchange.close_position(actual_pos_id)
-                    except Exception:
-                        exchange.close_position(pos_id)
+                try:
+                    self._execute_close_safely(exchange, actual_pos_id)
+                except Exception:
+                    self._execute_close_safely(exchange, pos_id)
                 closed = True
                 if self.interface:
                     self.interface.log(f"Closed position {pos_id} on {broker_name}", "warning")

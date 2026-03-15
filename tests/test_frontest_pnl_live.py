@@ -8,7 +8,9 @@ from unittest.mock import Mock, AsyncMock
 from trading_bot.exchange.ostium import OstiumExchange, OstiumPosition
 from trading_bot.exchange.exness_exchange import ExnessExchange
 from trading_bot.trading_engine import TradingEngine
+from trading_bot.trading_engine import TradingEngine
 from trading_bot.interface.base import InterfaceConfig
+from trading_bot.core.models import Trade
 
 
 class TestFrontestPnLLive:
@@ -87,7 +89,7 @@ class TestFrontestPnLLive:
 
         position = MockPos()
         exchange.positions = [position]
-        exchange.trades = [{"id": "1"}]
+        exchange.trades = [Trade(id="1", symbol="XAUUSDm", side="long", amount=0.1, price=5000.0)]
 
         # Initial PnL = 0
         stats = exchange.get_stats()
@@ -107,8 +109,10 @@ class TestFrontestPnLLive:
 
         # Mock exchange
         mock_exchange = Mock()
+        mock_exchange.name = "Mock"
         mock_exchange.get_positions.return_value = []
-        mock_exchange.trades = [{"id": "1"}]
+        mock_exchange.trades = [Trade(id="1", symbol="XAUUSDm", side="long", amount=0.1, price=5100.0)]
+        mock_exchange.current_price = 5100.0
 
         # This is what Ostium/Exness now returns
         mock_exchange.get_stats.return_value = {
@@ -129,7 +133,7 @@ class TestFrontestPnLLive:
         engine.strategy.on_tick.return_value = None
 
         # Run one update cycle
-        engine._update()
+        asyncio.run(engine._update())
 
         # Verify engine read net_pnl correctly
         assert engine.metrics.pnl == 15.0
@@ -173,7 +177,10 @@ class TestFrontestPnLLive:
                 trade_index=2,
             ),
         ]
-        exchange.trades = [{"id": "1"}, {"id": "2"}]
+        exchange.trades = [
+            Trade(id="1", symbol="XAUUSD", side="long", amount=1, price=5000),
+            Trade(id="2", symbol="XAUUSD", side="short", amount=1, price=5200)
+        ]
 
         stats = exchange.get_stats()
 
@@ -212,13 +219,13 @@ class TestFrontestCompleteFlow:
         )
         exchange.positions.append(position)
         exchange.trades.append(
-            {
-                "id": "trade_1",
-                "side": "buy",
-                "size": 0.1,
-                "price": 5000.0,
-                "tx_hash": "0xabc123",
-            }
+            Trade(
+                id="trade_1",
+                side="buy",
+                amount=0.1,
+                price=5000.0,
+                symbol="XAUUSD",
+            )
         )
 
         # 2. Price moves up

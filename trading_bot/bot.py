@@ -268,16 +268,28 @@ class TradingBot:
 
     def _run_live(self):
         """Live trading loop"""
-        while True:
-            try:
-                self._process_tick()
-                time.sleep(1)
-            except KeyboardInterrupt:
-                logger.info("Stopped by user")
-                break
-            except Exception as e:
-                logger.error(f"Error: {e}")
-                time.sleep(5)
+        # Note: self.engine.start() will be updated to an async function, so this runner sets up the asyncio event loop for the entire application.
+        import asyncio
+        try:
+            # Assuming self.exchange has an async `start` method for live trading
+            # If not, the original synchronous loop will be used.
+            if hasattr(self.exchange, "start") and asyncio.iscoroutinefunction(self.exchange.start):
+                asyncio.run(self.exchange.start())
+            else:
+                # Fallback to synchronous loop if no async start method
+                while self._running:
+                    try:
+                        self._process_tick()
+                        time.sleep(1)
+                    except Exception as e:
+                        logger.error(f"Error during tick processing: {e}")
+                        time.sleep(5) # Wait before retrying
+        except KeyboardInterrupt:
+            logger.info("Stopped by user (KeyboardInterrupt)")
+            self.graceful_shutdown()
+        except Exception as e:
+            logger.error(f"Bot encountered unhandled error in live loop: {e}")
+            self.graceful_shutdown()
 
     def _process_tick(self):
         """Single tick processing"""

@@ -158,6 +158,12 @@ class InterfaceConfig:
             "momentum",
             "breakout",
             "arbitrage",
+            "nfi",
+            "ib_breakout",
+            "seven_candle",
+            "bb_macd_rsi",
+            "ai",
+            "zerolag",
         }
         if self.strategy not in valid_strategies:
             errors.append(

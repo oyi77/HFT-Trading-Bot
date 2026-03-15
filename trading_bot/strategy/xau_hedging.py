@@ -67,15 +67,11 @@ class XAUHedgingStrategy(Strategy):
         positions: List[Position],
         timestamp: int = None,
     ) -> Optional[Dict]:
-        point = 0.01  # XAU/USD point value
+        # Use standardized pip value
+        point = self.get_pip_value(bid)
 
-        # Check session (skip if data doesn't have good sessions)
-        current_session = self._get_session(timestamp)
-
-        # Apply session filter if enabled
-        if self.config.use_session_filter and not self._is_good_session(
-            current_session
-        ):
+        # Use centralized session filter from base class
+        if not self.is_session_active(timestamp):
             return None
 
         self._update_tracking(positions)
@@ -92,6 +88,12 @@ class XAUHedgingStrategy(Strategy):
             return self._handle_hedge(positions[0], bid, ask, point)
 
         return None
+
+    # XAU-specific session detection for backward compatibility and granular control
+    def is_session_active(self, timestamp: Optional[int] = None) -> bool:
+        if not getattr(self.config, 'use_session_filter', True):
+            return True
+        return self._is_good_session(self._get_session(timestamp))
 
     def _get_session(self, timestamp: int = None) -> str:
         """Get current trading session"""
@@ -113,10 +115,9 @@ class XAUHedgingStrategy(Strategy):
 
     def _is_good_session(self, session: str) -> bool:
         """Check if current session is good for trading gold"""
-        # Skip Asia - gold usually ranging/choppy
-        # Skip off-market
         good_sessions = ["london_open", "london_peak", "ny"]
         return session in good_sessions
+
 
     def _update_tracking(self, positions: List[Position]):
         """Track main position"""

@@ -1,0 +1,110 @@
+//@version=5
+strategy("AlgoAlpha - Zero Lag Strategy [Custom]", overlay=true, pyramiding=10, initial_capital=1000, default_qty_type=strategy.fixed, default_qty_value=0.01)
+
+// ==========================================
+// 1. SETTINGS & INPUTS
+// ==========================================
+length = input.int(63, "Band Length", tooltip="Smilar to moving average length")
+mult = input.float(1.1, "Band Multiplier", tooltip="Higher value = less noise but slower signal")
+
+pip_mult = input.float(10, "Pip Modifier (e.g. 10 for Broker XAUUSD)", group="Risk Settings", tooltip="Sesuaikan agar 1 Pip dihitung benar (10 point)")
+tp_pips = input.float(30, "TP (Pips) [Default 30-50 XAU / 10 Forex]", group="Risk Settings")
+sl_pips = input.float(100, "SL (Pips) [Dari Harga Entry Averaging]", group="Risk Settings", tooltip="Stop loss pengaman modal (Hard Stop)")
+use_rev_cut = input.bool(false, "Aktifkan Cut Loss Berdasarkan Sinyal Berbalik?", group="Risk Settings", tooltip="True = Jika Sinyal Berubah arah, Posisi Minus Otomatis Di Cut (Kurang cocok untuk Martingale)")
+
+layer_pips = input.float(20, "Jarak Layering (Pips)", group="Layering (Averaging)")
+max_layers = input.int(4, "Max Jumlah Layer", group="Layering (Averaging)")
+lot_multiplier = input.float(2.0, "Lot Multiplier (Martingale)", group="Layering (Averaging)", tooltip="1.0 = Lot sama, 2.0 = Lot dikali dua tiap layer")
+base_qty = input.float(0.01, "Base Lot Size", group="Layering (Averaging)")
+
+use_time = input.bool(true, "Gunakan Filter Jam?", group="Time Settings (Waktu Server)")
+time_sess1 = input.session("0800-1200", "Sesi Pagi", group="Time Settings (Waktu Server)")
+time_sess2 = input.session("1400-1700", "Sesi Siang/Sore", group="Time Settings (Waktu Server)")
+time_sess3 = input.session("2200-0200", "Sesi Malam", group="Time Settings (Waktu Server)")
+
+// ==========================================
+// 2. TIME FILTER LOGIC
+// ==========================================
+// Fungsi cek apakah jam saat ini (menurut zona waktu chart) masuk dalam sesi yang diinput
+in_session(sess) => not na(time(timeframe.period, sess, syminfo.timezone))
+is_trading_time = not use_time or in_session(time_sess1) or in_session(time_sess2) or in_session(time_sess3)
+
+// ==========================================
+// 3. ZERO LAG CALCULATION
+// ==========================================
+src = close
+lag = math.floor((length - 1) / 2)
+zlema = ta.ema(src + (src - src[lag]), length)
+volatility = ta.highest(ta.atr(length), length*3) * mult
+
+var trend = 0
+if ta.crossover(close, zlema+volatility)
+    trend := 1
+if ta.crossunder(close, zlema-volatility)
+    trend := -1
+
+zlemaColor = trend == 1 ? color.new(#00ffbb, 70) : color.new(#ff1100, 70)
+plot(zlema, "Zero Lag Basis", color=zlemaColor, linewidth=2)
+
+// ==========================================
+// 4. SIGNAL CONFIRMATION & ENTRY LOGIC
+// ==========================================
+pip = syminfo.mintick * pip_mult
+
+// Validasi Buy: Trend sedang 1, kemunculan trend 1 terjadi belum lama ini (max 5 candle), dan candle sekarang ditutup Hijau
+bool buy_cond = trend == 1 and ta.barssince(ta.crossover(trend, 0)) <= 3 and close > open
+// Validasi Sell: Trend sedang -1, kemunculan trend -1 terjadi belum lama ini (max 5 candle), dan candle sekarang ditutup Merah
+bool sell_cond = trend == -1 and ta.barssince(ta.crossunder(trend, 0)) <= 3 and close < open
+
+// Plotting Sinyal ke Chart (Biar Kelihatan)
+plotshape(buy_cond and strategy.position_size == 0, title="Buy Signal", text="BUY", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small)
+plotshape(sell_cond and strategy.position_size == 0, title="Sell Signal", text="SELL", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.small)
+
+if is_trading_time
+    if buy_cond and strategy.position_size <= 0
+        if strategy.position_size < 0
+            strategy.close_all(comment="Cut/Rev: Buy Signal Muncul")
+        strategy.entry("Buy", strategy.long, qty=base_qty)
+
+    if sell_cond and strategy.position_size >= 0
+        if strategy.position_size > 0
+            strategy.close_all(comment="Cut/Rev: Sell Signal Muncul")
+        strategy.entry("Sell", strategy.short, qty=base_qty)
+
+// ==========================================
+// 6. CUT LOSS KETIKA SIGNAL BERBALIK (Safety Net Opsional)
+// ==========================================
+if use_rev_cut
+    if trend == -1 and strategy.position_size > 0
+        strategy.close_all(comment="Cut/Rev: Signal Pembalikan Sell")
+    if trend == 1 and strategy.position_size < 0
+        strategy.close_all(comment="Cut/Rev: Signal Pembalikan Buy")
+
+// ==========================================
+// 7. LAYERING & TAKE PROFIT LOGIC
+// ==========================================
+// -- LOGIKA ORDER BUY
+if strategy.position_size > 0
+    int layers = strategy.opentrades
+    if layers > 0 and layers < max_layers
+        float last_entry = strategy.opentrades.entry_price(layers - 1)
+        // Buka Layer baru jika harga turun sebesar X pips dari entry terakhir
+        if close < last_entry - (layer_pips * pip)
+            strategy.entry("Buy L"+str.tostring(layers+1), strategy.long, qty=base_qty * math.pow(lot_multiplier, layers))
+    
+    // Take Profit / Stop Loss (Didasarkan pada Harga Rata-rata / Average Price)
+    float avg_price = strategy.position_avg_price
+    strategy.exit("TP/SL Buy", limit=avg_price + (tp_pips * pip), stop=avg_price - (sl_pips * pip))
+
+// -- LOGIKA ORDER SELL
+if strategy.position_size < 0
+    int layers = strategy.opentrades
+    if layers > 0 and layers < max_layers
+        float last_entry = strategy.opentrades.entry_price(layers - 1)
+        // Buka Layer baru jika harga naik sebesar X pips dari entry terakhir
+        if close > last_entry + (layer_pips * pip)
+            strategy.entry("Sell L"+str.tostring(layers+1), strategy.short, qty=base_qty * math.pow(lot_multiplier, layers))
+            
+    // Take Profit / Stop Loss (Didasarkan pada Harga Rata-rata / Average Price)
+    float avg_price = strategy.position_avg_price
+    strategy.exit("TP/SL Sell", limit=avg_price - (tp_pips * pip), stop=avg_price + (sl_pips * pip))

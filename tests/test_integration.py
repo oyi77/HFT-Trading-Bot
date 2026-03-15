@@ -397,7 +397,7 @@ class TestOstiumIntegration:
             assert exchange.trader_address is not None
             return exchange
 
-        exchange = asyncio.get_event_loop().run_until_complete(test())
+        exchange = asyncio.run(test())
         assert exchange.balance >= 0
 
     @pytest.mark.integration
@@ -432,7 +432,7 @@ class TestOstiumIntegration:
             # ETH should be around $2000-5000
             assert 2000 < eth_price < 5000
 
-        asyncio.get_event_loop().run_until_complete(test())
+        asyncio.run(test())
 
     @pytest.mark.integration
     @pytest.mark.skipif(
@@ -465,7 +465,7 @@ class TestOstiumIntegration:
                 # Faucet may rate limit, that's ok for test
                 pytest.skip(f"Faucet unavailable or rate limited: {e}")
 
-        asyncio.get_event_loop().run_until_complete(test())
+        asyncio.run(test())
 
     @pytest.mark.integration
     @pytest.mark.skipif(
@@ -520,7 +520,7 @@ class TestOstiumIntegration:
                 positions = exchange.get_positions()
                 assert len(positions) > 0 or len(exchange.positions) > 0
 
-        asyncio.get_event_loop().run_until_complete(test())
+        asyncio.run(test())
 
     @pytest.mark.integration
     @pytest.mark.skipif(
@@ -582,7 +582,7 @@ class TestOstiumIntegration:
                         price = await exchange.get_price("XAUUSD")
                         assert price == 2650.0
 
-                    asyncio.get_event_loop().run_until_complete(test_price())
+                    asyncio.run(test_price())
 
                     # Test mocked balance
                     exchange.balance = 5000.0  # Set the balance attribute

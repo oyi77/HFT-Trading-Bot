@@ -6,44 +6,21 @@ Pure simulation with generated or historical data
 import random
 import time
 from typing import Optional, List, Dict, Any
-from dataclasses import dataclass, field
 from datetime import datetime
 
+from trading_bot.core.models import Position, OrderSide, PositionSide
 
-@dataclass
-class SimulatedPosition:
-    """Simulated trading position"""
 
-    id: str
-    symbol: str
-    side: str  # 'buy' or 'sell'
-    entry_price: float
-    volume: float
-    sl: Optional[float] = None
-    tp: Optional[float] = None
-    open_time: float = field(default_factory=time.time)
-    close_time: Optional[float] = None
-    close_price: Optional[float] = None
-    profit: float = 0.0
-    status: str = "open"
+def calculate_profit(side: str, entry_price: float, current_price: float, volume: float, point_value: float = 0.01) -> float:
+    """Calculate unrealized P&L"""
+    if str(side).lower() == "buy" or str(side).lower() == "long":
+        pips = (current_price - entry_price) / point_value
+    else:
+        pips = (entry_price - current_price) / point_value
 
-    # Alias for compatibility with Position model
-    @property
-    def amount(self) -> float:
-        return self.volume
-
-    def calculate_profit(
-        self, current_price: float, point_value: float = 0.01
-    ) -> float:
-        """Calculate unrealized P&L"""
-        if self.side == "buy":
-            pips = (current_price - self.entry_price) / point_value
-        else:
-            pips = (self.entry_price - current_price) / point_value
-
-        # XAU/USD: volume * 100 oz * $0.01 per pip
-        contract_size = 100
-        return pips * self.volume * contract_size * point_value
+    # XAU/USD: volume * 100 oz * $0.01 per pip
+    contract_size = 100
+    return pips * volume * contract_size * point_value
 
 
 class SimulatorExchange:
@@ -57,8 +34,10 @@ class SimulatorExchange:
         self.balance = initial_balance
         self.symbol = symbol
 
-        self.positions: List[SimulatedPosition] = []
-        self.closed_positions: List[SimulatedPosition] = []
+        self.name = "Simulator"
+
+        self.positions: List[Position] = []
+        self.closed_positions: List[Dict] = []
         self.trades: List[Dict] = []
         self.position_counter = 0
 
@@ -80,16 +59,12 @@ class SimulatorExchange:
 
     def get_equity(self) -> float:
         """Get equity (balance + unrealized P&L)"""
-        unrealized = sum(
-            pos.calculate_profit(self.current_price)
-            for pos in self.positions
-            if pos.status == "open"
-        )
+        unrealized = sum(p.unrealized_pnl for p in self.positions)
         return self.balance + unrealized
 
-    def get_positions(self, symbol: str = None) -> List[SimulatedPosition]:
+    def get_positions(self, symbol: str = None) -> List[Position]:
         """Get open positions"""
-        return [p for p in self.positions if p.status == "open"]
+        return list(self.positions)
 
     def open_position(
         self,
@@ -109,14 +84,18 @@ class SimulatorExchange:
         else:
             entry_price = self.current_price - spread / 2
 
-        position = SimulatedPosition(
+        pos_side = PositionSide.LONG if str(side).lower() == "buy" else PositionSide.SHORT
+        position = Position(
             id=str(self.position_counter),
             symbol=symbol,
-            side=side,
+            side=pos_side,
             entry_price=entry_price,
-            volume=volume,
-            sl=sl,
-            tp=tp,
+            amount=volume,
+            current_price=self.current_price,
+            unrealized_pnl=0.0,
+            sl=sl if sl else 0.0,
+            tp=tp if tp else 0.0,
+            open_time=int(time.time()),
         )
 
         self.positions.append(position)
@@ -136,18 +115,20 @@ class SimulatorExchange:
 
     def close_position(self, position_id: str) -> bool:
         """Close a position by ID"""
-        for pos in self.positions:
-            if pos.id == position_id and pos.status == "open":
+        for i, pos in enumerate(list(self.positions)):
+            if pos.id == position_id:
                 # Calculate profit
-                profit = pos.calculate_profit(self.current_price)
-
-                pos.status = "closed"
-                pos.close_time = time.time()
-                pos.close_price = self.current_price
-                pos.profit = profit
+                profit = calculate_profit(str(pos.side.value), pos.entry_price, self.current_price, pos.amount)
 
                 self.balance += profit
-                self.closed_positions.append(pos)
+                self.closed_positions.append({
+                    "id": pos.id,
+                    "profit": profit,
+                    "close_price": self.current_price,
+                    "close_time": time.time(),
+                })
+                
+                self.positions.pop(i)
 
                 self.trades.append(
                     {
@@ -168,7 +149,7 @@ class SimulatorExchange:
     ) -> bool:
         """Modify position SL/TP"""
         for pos in self.positions:
-            if pos.id == position_id and pos.status == "open":
+            if pos.id == position_id:
                 if sl is not None:
                     pos.sl = sl
                 if tp is not None:
@@ -192,28 +173,30 @@ class SimulatorExchange:
             self.current_price = max(1.0, self.current_price)
 
         self.price_history.append(self.current_price)
+        
+        # Check SL/TP and Update Position PnL
+        for pos in self.positions:
+            pos.current_price = self.current_price
+            pos.unrealized_pnl = calculate_profit(str(pos.side.value), pos.entry_price, self.current_price, pos.amount)
 
-        # Check SL/TP
         self._check_triggers()
 
     def _check_triggers(self):
         """Check and execute SL/TP"""
         for pos in list(self.positions):
-            if pos.status != "open":
-                continue
 
             # Check SL
             if pos.sl:
-                if pos.side == "buy" and self.current_price <= pos.sl:
+                if str(pos.side.value).lower() == "long" and self.current_price <= pos.sl:
                     self.close_position(pos.id)
-                elif pos.side == "sell" and self.current_price >= pos.sl:
+                elif str(pos.side.value).lower() == "short" and self.current_price >= pos.sl:
                     self.close_position(pos.id)
 
             # Check TP
             if pos.tp:
-                if pos.side == "buy" and self.current_price >= pos.tp:
+                if str(pos.side.value).lower() == "long" and self.current_price >= pos.tp:
                     self.close_position(pos.id)
-                elif pos.side == "sell" and self.current_price <= pos.tp:
+                elif str(pos.side.value).lower() == "short" and self.current_price <= pos.tp:
                     self.close_position(pos.id)
 
     def update_positions(self, current_price: float):
@@ -236,12 +219,12 @@ class SimulatorExchange:
                 "equity": self.get_equity(),
             }
 
-        wins = [p for p in self.closed_positions if p.profit > 0]
-        losses = [p for p in self.closed_positions if p.profit <= 0]
+        wins = [p for p in self.closed_positions if p["profit"] > 0]
+        losses = [p for p in self.closed_positions if p["profit"] <= 0]
 
-        total_profit = sum(p.profit for p in wins)
-        total_loss = sum(abs(p.profit) for p in losses)
-        net_pnl = sum(p.profit for p in self.closed_positions)
+        total_profit = sum(p["profit"] for p in wins)
+        total_loss = sum(abs(p["profit"]) for p in losses)
+        net_pnl = sum(p["profit"] for p in self.closed_positions)
 
         return {
             "total_trades": len(self.closed_positions),
@@ -255,7 +238,7 @@ class SimulatorExchange:
             "net_pnl": net_pnl,
             "balance": self.balance,
             "equity": self.get_equity(),
-            "open_positions": len([p for p in self.positions if p.status == "open"]),
+            "open_positions": len(self.positions),
         }
 
     def close(self):

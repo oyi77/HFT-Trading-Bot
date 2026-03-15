@@ -9,8 +9,11 @@ import json
 import logging
 import urllib.parse
 import urllib.request
+import time
 from typing import List, Optional, Dict, Any
 from dataclasses import dataclass
+from trading_bot.core.models import Position, OrderSide, PositionSide, Trade
+from trading_bot.core.interfaces import Exchange
 
 # Try to import Ostium SDK
 OstiumSDK: Any = None
@@ -105,8 +108,8 @@ class OstiumExchange:
 
         # Position tracking
         self.positions: List[OstiumPosition] = []
-        self.trades: List[Dict] = []
-        self.position_counter: int = 0
+        self.trades: List[Trade] = []
+        self.position_counter = 0
 
         # Balance tracking
         self.balance: float = 0.0
@@ -321,21 +324,17 @@ class OstiumExchange:
         spread = price * 0.0002
         return price - spread, price + spread
 
-    def update_price(self):
+    async def update_price(self):
         """Update price and sync positions (called by trading engine)"""
         updated = False
         try:
-            loop = asyncio.new_event_loop()
-            try:
-                price = loop.run_until_complete(self.get_price("XAUUSD"))
-            finally:
-                loop.close()
+            price = await self.get_price("XAUUSD")
 
             if price and price > 0:
                 self.current_price = float(price)
                 updated = True
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to run get_price in update_price loop: {e}")
 
         if not updated:
             bid, ask = self.get_price_with_spread("XAUUSD")
@@ -343,11 +342,7 @@ class OstiumExchange:
 
         # Sync positions from blockchain (to catch positions opened externally)
         try:
-            loop = asyncio.new_event_loop()
-            try:
-                loop.run_until_complete(self._sync_positions())
-            finally:
-                loop.close()
+            await self._sync_positions()
         except Exception as e:
             logger.debug(f"Position sync in update_price: {e}")
 
@@ -363,7 +358,7 @@ class OstiumExchange:
                 ) * position.size
 
         # Update PnL from SDK metrics for accuracy
-        asyncio.run(self._update_position_pnls_from_sdk())
+        await self._update_position_pnls_from_sdk()
 
     async def _update_position_pnls_from_sdk(self):
         if not self.sdk or not self.trader_address:
@@ -382,8 +377,8 @@ class OstiumExchange:
                     )
                     if metrics.get("liquidation_price"):
                         position.liquidation_price = float(metrics["liquidation_price"])
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to get open trade metrics from SDK: {e}")
 
     def get_current_price(self) -> float:
         """Get current cached price"""
@@ -548,15 +543,25 @@ class OstiumExchange:
                 if pos.tx_hash == tx_hash or (
                     pos.symbol == symbol and pos.status == "open"
                 ):
-                    if not any(t.get("tx_hash") == tx_hash for t in self.trades):
+                    # Logic: Check if we already have this tx_hash recorded
+                    exists = False
+                    for t in self.trades:
+                        t_tx = t.tx_hash if hasattr(t, "tx_hash") else (t.get("tx_hash") if isinstance(t, dict) else None)
+                        if t_tx == tx_hash:
+                            exists = True
+                            break
+                    
+                    if not exists:
                         self.trades.append(
-                            {
-                                "id": pos.id,
-                                "side": side,
-                                "size": volume,
-                                "price": current_price,
-                                "tx_hash": tx_hash,
-                            }
+                            Trade(
+                                id=f"sync_{tx_hash[:8]}",
+                                symbol=symbol,
+                                side=side,
+                                amount=volume,
+                                price=current_price,
+                                tx_hash=tx_hash,
+                                timestamp=int(time.time())
+                            )
                         )
                     logger.info(f"Position opened: {pos.id}")
                     return pos.id
@@ -587,13 +592,15 @@ class OstiumExchange:
 
             self.positions.append(position)
             self.trades.append(
-                {
-                    "id": pos_id,
-                    "side": side,
-                    "size": volume,
-                    "price": current_price,
-                    "tx_hash": tx_hash,
-                }
+                Trade(
+                    id=pos_id,
+                    symbol=symbol,
+                    side=side,
+                    amount=volume,
+                    price=current_price,
+                    tx_hash=tx_hash,
+                    timestamp=int(time.time()),
+                )
             )
 
             return pos_id

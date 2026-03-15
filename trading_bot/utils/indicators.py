@@ -278,6 +278,93 @@ def get_trend_direction(
     return 0
 
 
+def calculate_zlema(closes: List[float], length: int) -> Optional[float]:
+    """
+    Calculate Zero Lag EMA (ZLEMA).
+
+    Uses lag-compensated source: src + (src - src[lag]) where lag = floor((length-1)/2).
+    Then applies standard EMA on the compensated source.
+
+    Args:
+        closes: List of close prices
+        length: EMA period / band length
+
+    Returns:
+        ZLEMA value or None if insufficient data
+    """
+    lag = int((length - 1) / 2)
+    min_needed = length + lag + 1
+
+    if len(closes) < min_needed:
+        return None
+
+    # Build lag-compensated source: src[i] + (src[i] - src[i + lag])
+    # Working with most-recent-last ordering
+    compensated = []
+    for i in range(lag, len(closes)):
+        compensated.append(closes[i] + (closes[i] - closes[i - lag]))
+
+    if len(compensated) < length:
+        return None
+
+    # Apply EMA on compensated source
+    return calculate_ema(compensated, length)
+
+
+def calculate_zlema_series(closes: List[float], length: int) -> Optional[List[float]]:
+    """
+    Calculate Zero Lag EMA series (returns recent values for crossover detection).
+
+    Args:
+        closes: List of close prices
+        length: EMA period / band length
+
+    Returns:
+        List of recent ZLEMA values (last N values) or None
+    """
+    lag = int((length - 1) / 2)
+    min_needed = length + lag + 1
+
+    if len(closes) < min_needed:
+        return None
+
+    # Build lag-compensated source
+    compensated = []
+    for i in range(lag, len(closes)):
+        compensated.append(closes[i] + (closes[i] - closes[i - lag]))
+
+    if len(compensated) < length:
+        return None
+
+    # Calculate full EMA series on compensated source
+    k = 2.0 / (length + 1.0)
+    ema_val = sum(compensated[:length]) / length
+    series = [ema_val]
+
+    for i in range(length, len(compensated)):
+        ema_val = (compensated[i] - ema_val) * k + ema_val
+        series.append(ema_val)
+
+    return series
+
+
+def calculate_highest(values: List[float], period: int) -> Optional[float]:
+    """
+    Calculate highest value over a lookback period.
+
+    Args:
+        values: List of values
+        period: Lookback period
+
+    Returns:
+        Highest value or None if insufficient data
+    """
+    if len(values) < period:
+        return None
+
+    return max(values[-period:])
+
+
 def calculate_position_size(
     account_balance: float,
     risk_percent: float,

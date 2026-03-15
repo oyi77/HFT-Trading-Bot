@@ -31,6 +31,8 @@ from trading_bot.strategy import (
     BBMacdRsiConfig,
     AIStrategy,
     AIStrategyConfig,
+    ZeroLagStrategy,
+    ZeroLagConfig,
 )
 from trading_bot.strategy.scalping import ScalpingStrategy, ScalpingConfig
 from trading_bot.exchange.base import Exchange
@@ -256,6 +258,13 @@ class UnifiedBacktestRunner:
                 strategy_name="AI_Strategy",
                 strategy_class=AIStrategy,
                 config=AIStrategyConfig(lots=0.01, min_training_samples=50, retrain_interval=25),
+                symbols=["XAUUSDm"],
+                timeframes=["1h", "4h"],
+            ),
+            StrategyBacktestConfig(
+                strategy_name="ZeroLag",
+                strategy_class=ZeroLagStrategy,
+                config=ZeroLagConfig(lots=0.01),
                 symbols=["XAUUSDm"],
                 timeframes=["1h", "4h"],
             ),

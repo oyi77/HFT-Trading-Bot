@@ -11,9 +11,12 @@ Features:
 """
 
 import warnings
+import logging
 from typing import Dict, Optional, List
 from dataclasses import dataclass
 from collections import deque
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 
@@ -108,9 +111,14 @@ class AIStrategy(Strategy):
         # ML components
         self.model = None
         self.is_trained = False
+        self.is_training = False
         self.training_features: List[List[float]] = []
         self.training_labels: List[int] = []
         self.pending_labels: deque = deque(maxlen=5000)  # (tick_idx, features)
+        
+        # Concurrency
+        from concurrent.futures import ThreadPoolExecutor
+        self.executor = ThreadPoolExecutor(max_workers=1)
 
         # Counters
         self.tick_count = 0
@@ -170,11 +178,15 @@ class AIStrategy(Strategy):
         # Store for future labeling
         self.pending_labels.append((len(self.closes) - 1, features))
 
-        # ── Step 3: Retrain if needed ──
-        if (self.ticks_since_retrain >= self.config.retrain_interval and
-                len(self.training_features) >= self.config.min_training_samples):
-            self._train_model()
+        # ── Step 4: Retrain model periodically ──
+        if (
+            self.ticks_since_retrain >= self.config.retrain_interval
+            and len(self.training_features) >= self.config.min_training_samples
+            and not self.is_training
+        ):
             self.ticks_since_retrain = 0
+            # Start background training
+            self.executor.submit(self._train_model)
 
         # ── Step 4: Manage existing positions ──
         action = self._manage_positions(positions, bid, ask)
@@ -340,19 +352,25 @@ class AIStrategy(Strategy):
             self.training_labels = self.training_labels[-max_samples:]
 
     def _train_model(self):
-        """Train or retrain the GradientBoosting model."""
+        """Train or retrain the GradientBoosting model in a background thread."""
+        if self.is_training:
+            return
+            
+        self.is_training = True
         try:
             from sklearn.ensemble import GradientBoostingClassifier
 
-            X = np.array(self.training_features)
-            y = np.array(self.training_labels)
+            # Deep copy to avoid thread mutation issues
+            X = np.array(self.training_features.copy())
+            y = np.array(self.training_labels.copy())
 
             # Check class distribution - need at least 2 classes
             unique_classes = np.unique(y)
             if len(unique_classes) < 2:
+                self.is_training = False
                 return
 
-            self.model = GradientBoostingClassifier(
+            new_model = GradientBoostingClassifier(
                 n_estimators=50,
                 max_depth=4,
                 learning_rate=0.1,
@@ -362,11 +380,17 @@ class AIStrategy(Strategy):
                 random_state=42,
             )
 
-            self.model.fit(X, y)
+            new_model.fit(X, y)
+            
+            # Hot swap
+            self.model = new_model
             self.is_trained = True
+            logger.debug("AI Model retrained successfully in background.")
 
-        except Exception:
-            self.is_trained = False
+        except Exception as e:
+            logger.debug(f"Failed to train AI model: {e}")
+        finally:
+            self.is_training = False
 
     def _predict_and_trade(
         self,
@@ -420,8 +444,8 @@ class AIStrategy(Strategy):
                         "tp": round(bid - tp_dist, 2),
                     }
 
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Predict and trade failed: {e}")
 
         return None
 
