@@ -17,9 +17,9 @@ The bot has **three distinct interface modes**:
 ### TUI Mode (Default) - Interactive Wizard
 ```bash
 # Start with interactive setup wizard (recommended)
-python trading_bot.py
+python main.py
 # or explicitly:
-python trading_bot.py -i tui
+python main.py -i tui
 ```
 
 The wizard guides you through:
@@ -33,13 +33,13 @@ The wizard guides you through:
 ### CLI Mode - Arguments Only
 ```bash
 # Show config and ask confirmation
-python trading_bot.py -i cli --mode paper --symbol XAUUSDm --lot 0.02
+python main.py -i cli --mode paper --symbol XAUUSDm --lot 0.02
 
 # Auto-start without confirmation
-python trading_bot.py -i cli -y --mode paper --lot 0.02
+python main.py -i cli -y --mode paper --lot 0.02
 
 # All available params
-python trading_bot.py -i cli \
+python main.py -i cli \
     --mode paper \
     --symbol XAUUSDm \
     --lot 0.01 \
@@ -51,7 +51,7 @@ python trading_bot.py -i cli \
 ### Web Mode
 ```bash
 # Launch web interface
-python trading_bot.py -i web
+python main.py -i web
 ```
 
 ---
@@ -59,7 +59,7 @@ python trading_bot.py -i web
 ## 📋 Command Line Options
 
 ```
-python trading_bot.py [OPTIONS]
+python main.py [OPTIONS]
 
 Options:
   -i, --interface {cli,tui,web}  Interface type (default: tui)
@@ -85,16 +85,16 @@ Options:
 ### Paper Trading (TUI Wizard)
 ```bash
 # Use the interactive wizard to configure
-python trading_bot.py -i tui
+python main.py -i tui
 ```
 
 ### Paper Trading (CLI)
 ```bash
 # Quick paper trading test
-python trading_bot.py -i cli -y
+python main.py -i cli -y
 
 # With custom parameters
-python trading_bot.py -i cli \
+python main.py -i cli \
     --symbol EURUSD \
     --lot 0.02 \
     --balance 500 \
@@ -104,11 +104,11 @@ python trading_bot.py -i cli \
 ### Frontest Mode (Demo Account)
 ```bash
 # Using TUI wizard (enter credentials interactively)
-python trading_bot.py -i tui
+python main.py -i tui
 
 # Using CLI with env vars
 export EXNESS_TOKEN="your_jwt_token"
-python trading_bot.py -i cli \
+python main.py -i cli \
     --mode frontest \
     --provider exness \
     -y
@@ -118,7 +118,7 @@ python trading_bot.py -i cli \
 ```bash
 # ⚠️ REAL MONEY AT RISK!
 # Recommended: Use TUI wizard to double-check settings
-python trading_bot.py -i tui
+python main.py -i tui
 ```
 
 ---

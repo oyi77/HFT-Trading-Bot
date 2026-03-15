@@ -15,7 +15,7 @@ Multi-exchange trading bot supporting Paper/Frontest/Real modes with 4 strategie
 
 ```
 HFT Trading Bot/
-├── trading_bot.py          # Entry point (TUI/CLI)
+├── main.py          # Entry point (TUI/CLI)
 ├── trading_bot/
 │   ├── exchange/          # See exchange/AGENTS.md
 │   ├── strategy/          # See strategy/AGENTS.md
@@ -32,10 +32,10 @@ HFT Trading Bot/
 
 ```bash
 # Run TUI (interactive)
-python trading_bot.py
+python main.py
 
 # Run CLI
-python trading_bot.py -i cli --mode paper --symbol XAUUSDm --lot 0.01
+python main.py -i cli --mode paper --symbol XAUUSDm --lot 0.01
 
 # Run tests
 python run_tests.py
@@ -86,7 +86,7 @@ python -c "from trading_bot.core.hft_optimizer import run_hft_optimization; run_
 
 ```
 .
-├── trading_bot.py              # Main entry point (TUI/CLI)
+├── main.py              # Main entry point (TUI/CLI)
 ├── run_tests.py                # Test runner
 ├── requirements.txt            # Dependencies
 ├── config.example.env          # Env template
@@ -114,10 +114,10 @@ python -c "from trading_bot.core.hft_optimizer import run_hft_optimization; run_
 pip install -r requirements.txt
 
 # Run TUI (default)
-python trading_bot.py
+python main.py
 
 # Run CLI
-python trading_bot.py -i cli --mode paper --symbol XAUUSDm --lot 0.01
+python main.py -i cli --mode paper --symbol XAUUSDm --lot 0.01
 
 # Run tests
 python run_tests.py              # All tests

@@ -23,47 +23,47 @@ A flexible, modular trading bot supporting **Paper Trading** (simulation), **Fro
 ### TUI Mode (Default) - Interactive Wizard
 ```bash
 # Launch interactive setup wizard
-python trading_bot.py              # Uses TUI by default
-python trading_bot.py -i tui       # Explicit TUI mode
+python main.py              # Uses TUI by default
+python main.py -i tui       # Explicit TUI mode
 ```
 
 ### CLI Mode - Arguments Only
 ```bash
 # Use command line arguments (no wizard)
-python trading_bot.py -i cli --mode paper --symbol XAUUSDm --lot 0.02
+python main.py -i cli --mode paper --symbol XAUUSDm --lot 0.02
 
 # Auto-start without confirmation
-python trading_bot.py -i cli -y --mode paper
+python main.py -i cli -y --mode paper
 ```
 
 ### 1. Paper Trading (No Account Needed)
 ```bash
 # Interactive wizard (recommended)
-python trading_bot.py -i tui
+python main.py -i tui
 
 # CLI mode with auto-start
-python trading_bot.py -i cli -y
+python main.py -i cli -y
 
 # CLI with custom parameters
-python trading_bot.py -i cli --mode paper --lot 0.01 --balance 500 -y
+python main.py -i cli --mode paper --lot 0.01 --balance 500 -y
 ```
 
 ### 2. Frontest (Demo Account)
 ```bash
 # Exness demo
 export EXNESS_TOKEN="your_jwt_token"
-python trading_bot.py -i tui --mode frontest --provider exness
+python main.py -i tui --mode frontest --provider exness
 
 # Binance testnet
 export EXCHANGE_API_KEY="..."
 export EXCHANGE_API_SECRET="..."
-python trading_bot.py --mode frontest --provider ccxt --exchange binance
+python main.py --mode frontest --provider ccxt --exchange binance
 ```
 
 ### 3. ⚠️ Real Trading
 ```bash
 # ⚠️ REAL MONEY AT RISK!
-python trading_bot.py --mode real --provider exness
+python main.py --mode real --provider exness
 ```
 
 ---
@@ -132,7 +132,7 @@ cd trading-bot
 pip install -r requirements.txt
 
 # Run
-python trading_bot.py
+python main.py
 ```
 
 ---
@@ -140,7 +140,7 @@ python trading_bot.py
 ## 🎮 Interactive Mode
 
 ```bash
-$ python trading_bot.py
+$ python main.py
 
     ╔═══════════════════════════════════════════════════╗
     ║              🤖 TRADING BOT SYSTEM                ║
@@ -172,7 +172,7 @@ trading_bot/
 │   └── auth.py        # Authentication manager
 └── risk/              # Risk management
 
-trading_bot.py         # Main CLI entry point
+main.py         # Main CLI entry point
 USAGE.md              # Detailed usage guide
 ```
 

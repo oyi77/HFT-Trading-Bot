@@ -71,6 +71,6 @@ class BaseInterface(ABC):
 ## Entry Points
 
 ```bash
-python trading_bot.py -i tui    # TUI mode (default)
-python trading_bot.py -i cli    # CLI mode
+python main.py -i tui    # TUI mode (default)
+python main.py -i cli    # CLI mode
 ```
