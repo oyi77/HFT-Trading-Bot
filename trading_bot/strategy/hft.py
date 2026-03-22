@@ -22,13 +22,13 @@ class HFTConfig:
     max_positions: int = 5  # Max concurrent positions
 
     # Scalping parameters
-    min_spread_pips: int = 2  # Minimum spread to trade (pips)
-    profit_target_pips: int = 3  # Take profit in pips (scalping)
-    stop_loss_pips: int = 5  # Stop loss in pips (tight)
+    max_spread_pips: int = 15  # Maximum spread to trade (pips) - increased for XAU
+    profit_target_pips: int = 10  # Take profit in pips (realistic for XAU)
+    stop_loss_pips: int = 8  # Stop loss in pips (proper risk/reward)
 
     # Momentum parameters
     momentum_lookback: int = 10  # Ticks for momentum calculation
-    momentum_threshold: float = 0.0002  # 0.02% price change threshold
+    momentum_threshold: float = 0.00005  # Lowered for more signals on XAU
 
     # Order book parameters
     spread_threshold: float = 0.0001  # 0.01% spread threshold
@@ -52,9 +52,9 @@ class HFTConfig:
     max_daily_loss: float = 50.0  # Max daily loss in account currency
     cooldown_after_loss: int = 60  # Seconds to cooldown after loss
 
-    # Volatility filter
-    min_volatility: float = 0.0001  # Minimum volatility to trade
-    max_volatility: float = 0.001  # Maximum volatility (avoid chaotic markets)
+    # Volatility filter - adjusted for XAU volatility
+    min_volatility: float = 0.0005  # Minimum volatility to trade
+    max_volatility: float = 0.02  # Maximum volatility (widened for XAU)
 
 
 class HFTStrategy(Strategy):
@@ -186,8 +186,8 @@ class HFTStrategy(Strategy):
         point = self.point_value
         spread_pips = spread / point
 
-        # Filter: Spread too wide
-        if spread_pips < self.config.min_spread_pips:
+        # Filter: Spread too wide - don't trade if spread exceeds max
+        if spread_pips > self.config.max_spread_pips:
             return None
 
         # Calculate momentum
@@ -219,52 +219,40 @@ class HFTStrategy(Strategy):
             poc = vp_analysis.get("poc", mid_price)
             poc_proximity = self._check_poc_proximity(mid_price, poc)
 
-        # Combined entry logic
-        # Require momentum + at least one confirmation (depth or volume)
-        entry_score = 0
-        if momentum > self.config.momentum_threshold:
-            entry_score = 1
-        elif momentum < -self.config.momentum_threshold:
-            entry_score = -1
+        # Combined entry logic - momentum + at least one confirmation
+        has_bullish_momentum = momentum > self.config.momentum_threshold
+        has_bearish_momentum = momentum < -self.config.momentum_threshold
+        has_depth_confirmation = depth_signal != 0
+        has_volume_confirmation = volume_signal > 0 and poc_proximity
 
-        # Apply confirmations
-        if entry_score > 0:
-            # Bullish momentum
-            if depth_signal > 0:
-                entry_score += 1
-            if volume_signal > 0 and poc_proximity:
-                entry_score += 1
+        # Trade on momentum + confirmation OR strong momentum alone
+        strong_momentum = abs(momentum) > self.config.momentum_threshold * 3
 
-            # Require at least one confirmation
-            if entry_score >= 2:
-                sl = bid - self.config.stop_loss_pips * point
-                tp = ask + self.config.profit_target_pips * point
-                return {
-                    "action": "open",
-                    "side": OrderSide.BUY,
-                    "amount": self.config.lots,
-                    "sl": round(sl, 2),
-                    "tp": round(tp, 2),
-                }
+        if has_bullish_momentum and (
+            has_depth_confirmation or has_volume_confirmation or strong_momentum
+        ):
+            sl = bid - self.config.stop_loss_pips * point
+            tp = ask + self.config.profit_target_pips * point
+            return {
+                "action": "open",
+                "side": OrderSide.BUY,
+                "amount": self.config.lots,
+                "sl": round(sl, 2),
+                "tp": round(tp, 2),
+            }
 
-        elif entry_score < 0:
-            # Bearish momentum
-            if depth_signal < 0:
-                entry_score -= 1
-            if volume_signal > 0 and poc_proximity:
-                entry_score -= 1
-
-            # Require at least one confirmation
-            if entry_score <= -2:
-                sl = ask + self.config.stop_loss_pips * point
-                tp = bid - self.config.profit_target_pips * point
-                return {
-                    "action": "open",
-                    "side": OrderSide.SELL,
-                    "amount": self.config.lots,
-                    "sl": round(sl, 2),
-                    "tp": round(tp, 2),
-                }
+        if has_bearish_momentum and (
+            has_depth_confirmation or has_volume_confirmation or strong_momentum
+        ):
+            sl = ask + self.config.stop_loss_pips * point
+            tp = bid - self.config.profit_target_pips * point
+            return {
+                "action": "open",
+                "side": OrderSide.SELL,
+                "amount": self.config.lots,
+                "sl": round(sl, 2),
+                "tp": round(tp, 2),
+            }
 
         return None
 

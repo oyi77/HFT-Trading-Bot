@@ -46,13 +46,14 @@ class Order:
     tp: float = 0
     status: str = "open"
     timestamp: int = 0
+    provider: str = ""
 
 
 @dataclass
 class Position:
     id: str
     symbol: str
-    side: PositionSide
+    side: PositionSide  # Actually it could be Enum or str depending on the runtime, models use Enum primarily, but we'll accept str natively as well if cast
     entry_price: float
     amount: float
     current_price: float = 0
@@ -60,18 +61,22 @@ class Position:
     sl: float = 0
     tp: float = 0
     open_time: int = 0
+    status: str = "open"
+    provider: str = ""
 
 
 @dataclass
 class Trade:
     id: str
     symbol: str
-    side: OrderSide
+    side: str
     price: float
     amount: float
     pnl: float = 0
     fee: float = 0
     timestamp: int = 0
+    tx_hash: str = ""
+    provider: str = ""
 
 
 @dataclass

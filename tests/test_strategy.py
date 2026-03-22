@@ -18,15 +18,15 @@ class TestXAUHedgingConfig:
         config = XAUHedgingConfig()
 
         assert config.lots == 0.01
-        assert config.stop_loss == 500
-        assert config.take_profit == 1000
+        assert config.stop_loss == 600
+        assert config.take_profit == 1500
         assert config.start_direction == 0
         assert config.x_distance == 100
         assert config.trail_start == 100
         assert config.trailing == 50
         assert config.break_even_profit == 50
         assert config.break_even_offset == 10
-        assert config.use_session_filter is False
+        assert config.use_session_filter is True
 
     def test_custom_config(self):
         """Test custom configuration"""
@@ -46,7 +46,7 @@ class TestXAUHedgingStrategy:
     @pytest.fixture
     def strategy(self):
         """Create a test strategy"""
-        config = XAUHedgingConfig(lots=0.01, stop_loss=500)
+        config = XAUHedgingConfig(lots=0.01, stop_loss=500, use_session_filter=False)
         return XAUHedgingStrategy(config)
 
     def test_strategy_creation(self, strategy):
@@ -295,13 +295,13 @@ class TestConcreteStrategy:
 
     def test_xau_strategy_instantiation(self):
         """Test that XAU strategy can be instantiated"""
-        strategy = XAUHedgingStrategy(XAUHedgingConfig())
+        strategy = XAUHedgingStrategy(XAUHedgingConfig(use_session_filter=False))
         assert strategy is not None
         assert isinstance(strategy, Strategy)
 
     def test_xau_strategy_implements_on_tick(self):
         """Test that XAU strategy implements on_tick"""
-        strategy = XAUHedgingStrategy(XAUHedgingConfig())
+        strategy = XAUHedgingStrategy(XAUHedgingConfig(use_session_filter=False))
 
         # Should be able to call on_tick
         signal = strategy.on_tick(price=5000.0, bid=4999.98, ask=5000.02, positions=[])

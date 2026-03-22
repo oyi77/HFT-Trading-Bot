@@ -5,6 +5,7 @@ from trading_bot.interface.base import InterfaceConfig
 from trading_bot.interface.tui import TUIInterface
 from trading_bot.exchange.ostium import OstiumExchange, OstiumPosition
 from trading_bot.exchange.simulator import SimulatorExchange
+from trading_bot.core.models import Trade
 from trading_bot.strategy.xau_hedging import XAUHedgingConfig, XAUHedgingStrategy
 from trading_bot.trading_engine import TradingEngine
 
@@ -232,9 +233,9 @@ def test_ostium_update_price_uses_live_sdk_price(monkeypatch):
     exchange.trader_address = "0xabc"
     exchange.current_price = 2650.0
 
-    exchange.update_price()
+    asyncio.run(exchange.update_price())
     first = exchange.current_price
-    exchange.update_price()
+    asyncio.run(exchange.update_price())
     second = exchange.current_price
 
     assert first == 2701.25
@@ -413,7 +414,7 @@ def test_ostium_update_price_marks_position_pnl(monkeypatch):
     ]
 
     exchange.get_price = AsyncMock(return_value=5100.0)
-    exchange.update_price()
+    asyncio.run(exchange.update_price())
 
     assert exchange.current_price == 5100.0
     assert exchange.positions[0].current_price == 5100.0
@@ -423,18 +424,19 @@ def test_ostium_update_price_marks_position_pnl(monkeypatch):
 def test_trading_engine_uses_total_trades_without_halving():
     cfg = InterfaceConfig(mode="paper", symbol="XAUUSDm", balance=100.0)
     engine = TradingEngine(cfg, interface=None)
-    engine.exchange = SimulatorExchange(initial_balance=1000.0)
-    engine.exchange.trades = [{"id": "t1"}]
-    engine.exchange.get_stats = lambda: {
+    simulator = SimulatorExchange(initial_balance=1000.0)
+    engine.exchanges = [simulator]
+    simulator.trades = [Trade(id="t1", symbol="XAUUSD", side="buy", amount=1, price=1)]
+    simulator.get_stats = lambda: {
         "balance": 1000.0,
         "equity": 1005.0,
         "net_pnl": 5.0,
         "total_trades": 1,
     }
-    engine.strategy = XAUHedgingStrategy(XAUHedgingConfig(lots=0.01))
+    engine.strategy = XAUHedgingStrategy(XAUHedgingConfig(lots=0.01, use_session_filter=False))
     engine.strategy.on_tick = lambda price, bid, ask, positions, timestamp=None: None
 
-    engine._update()
+    asyncio.run(engine._update())
 
     assert engine.metrics.trades == 1
 
@@ -476,7 +478,7 @@ def test_ostium_update_price_uses_sdk_pnl_metrics(monkeypatch):
     ]
 
     monkeypatch.setattr(exchange, "get_price", AsyncMock(return_value=5100.0))
-    exchange.update_price()
+    asyncio.run(exchange.update_price())
 
     assert exchange.positions[0].unrealized_pnl == 25.5
     assert exchange.positions[0].liquidation_price == 4800.0

@@ -141,8 +141,8 @@ class ExnessExchange:
             try:
                 price = self.provider.get_price("XAUUSDm")
                 self.current_price = price
-            except:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to update price from Exness: {e}")
 
     def get_current_price(self) -> float:
         """Get current cached price"""

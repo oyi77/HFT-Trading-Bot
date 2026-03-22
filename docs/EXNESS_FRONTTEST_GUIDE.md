@@ -38,7 +38,7 @@ export EXNESS_SERVER="trial6"  # or trial5, real17, etc.
 ### 4. Run Frontest
 
 ```bash
-python trading_bot.py -i cli \
+python main.py -i cli \
   --mode frontest \
   --provider exness \
   --symbol XAUUSDm \

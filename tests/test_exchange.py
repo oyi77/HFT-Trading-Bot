@@ -10,8 +10,9 @@ from trading_bot.exchange.exness_web import (
     ExnessConfig,
     create_exness_web_provider
 )
-from trading_bot.exchange.simulator import SimulatorExchange
+from trading_bot.exchange.simulator import SimulatorExchange, calculate_profit
 from trading_bot.core.interfaces import Exchange
+from trading_bot.core.models import Position, OrderSide, PositionSide, Trade
 
 
 class TestExnessConfig:
@@ -210,8 +211,8 @@ class TestSimulatorExchange:
         assert len(sim.positions) == 1
         
         pos = sim.positions[0]
-        assert pos.side == "buy"
-        assert pos.volume == 0.01
+        assert pos.side == PositionSide.LONG
+        assert pos.amount == 0.01
         assert pos.sl == 4900.0
         assert pos.tp == 5100.0
     
@@ -227,7 +228,7 @@ class TestSimulatorExchange:
         
         assert position_id == "1"
         pos = sim.positions[0]
-        assert pos.side == "sell"
+        assert pos.side == PositionSide.SHORT
     
     def test_get_positions(self, sim):
         """Test getting positions"""
@@ -235,7 +236,7 @@ class TestSimulatorExchange:
         
         positions = sim.get_positions()
         assert len(positions) == 1
-        assert positions[0].side == "buy"
+        assert positions[0].side == PositionSide.LONG
     
     def test_close_position(self, sim):
         """Test closing a position"""
@@ -247,7 +248,7 @@ class TestSimulatorExchange:
         result = sim.close_position(position_id)
         
         assert result is True
-        assert len([p for p in sim.positions if p.status == "open"]) == 0
+        assert len(sim.positions) == 0
         assert len(sim.closed_positions) == 1
     
     def test_close_position_invalid(self, sim):
@@ -275,7 +276,7 @@ class TestSimulatorExchange:
         sim._check_triggers()
         
         # Position should be closed
-        assert len([p for p in sim.positions if p.status == "open"]) == 0
+        assert len(sim.positions) == 0
         assert len(sim.closed_positions) == 1
     
     def test_check_tp_hit(self, sim):
@@ -287,7 +288,7 @@ class TestSimulatorExchange:
         sim._check_triggers()
         
         # Position should be closed
-        assert len([p for p in sim.positions if p.status == "open"]) == 0
+        assert len(sim.positions) == 0
         assert len(sim.closed_positions) == 1
     
     def test_get_stats(self, sim):
@@ -309,11 +310,11 @@ class TestSimulatorExchange:
         pos = sim.positions[0]
         
         # Price up $100
-        profit = pos.calculate_profit(5100.0)
+        profit = calculate_profit(str(pos.side.value), pos.entry_price, 5100.0, pos.amount)
         assert profit > 0
         
         # Price down $100
-        loss = pos.calculate_profit(4900.0)
+        loss = calculate_profit(str(pos.side.value), pos.entry_price, 4900.0, pos.amount)
         assert loss < 0
 
 

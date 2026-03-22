@@ -26,22 +26,22 @@ class TestBotConfig:
         """Test config with default values"""
         config = BotConfig(
             mode="paper",
-            provider="exness",
+            provider=["exness"],
             account="demo",
             symbol="XAUUSDm",
             lot=0.01,
-            leverage=2000,
+            leverage=100,
             strategy="xau_hedging",
             sl_pips=500,
             tp_pips=1000,
         )
 
         assert config.mode == "paper"
-        assert config.provider == "exness"
+        assert config.provider == ["exness"]
         assert config.account == "demo"
         assert config.symbol == "XAUUSDm"
         assert config.lot == 0.01
-        assert config.leverage == 2000
+        assert config.leverage == 100
         assert config.strategy == "xau_hedging"
         assert config.sl_pips == 500
         assert config.tp_pips == 1000
@@ -55,7 +55,7 @@ class TestBotConfig:
         """Test config with custom values"""
         config = BotConfig(
             mode="frontest",
-            provider="ccxt",
+            provider=["ccxt"],
             account="demo",
             symbol="BTCUSD",
             lot=0.02,
@@ -70,7 +70,7 @@ class TestBotConfig:
         )
 
         assert config.mode == "frontest"
-        assert config.provider == "ccxt"
+        assert config.provider == ["ccxt"]
         assert config.exchange == "binance"
         assert config.balance == 500.0
         assert config.days == 14
@@ -79,11 +79,11 @@ class TestBotConfig:
         """Test config serialization"""
         config = BotConfig(
             mode="paper",
-            provider="exness",
+            provider=["exness"],
             account="demo",
             symbol="XAUUSDm",
             lot=0.01,
-            leverage=2000,
+            leverage=100,
             strategy="xau_hedging",
             sl_pips=500,
             tp_pips=1000,
@@ -104,11 +104,11 @@ class TestBotConfig:
         for mode in modes:
             config = BotConfig(
                 mode=mode,
-                provider="exness",
+                provider=["exness"],
                 account="real" if mode == "real" else "demo",
                 symbol="XAUUSDm",
                 lot=0.01,
-                leverage=2000,
+                leverage=100,
                 strategy="xau_hedging",
                 sl_pips=500,
                 tp_pips=1000,
@@ -123,11 +123,11 @@ class TestConfigFileOperations:
         """Test saving and loading config"""
         config = BotConfig(
             mode="paper",
-            provider="exness",
+            provider=["exness"],
             account="demo",
             symbol="XAUUSDm",
             lot=0.01,
-            leverage=2000,
+            leverage=100,
             strategy="xau_hedging",
             sl_pips=500,
             tp_pips=1000,
@@ -169,11 +169,11 @@ class TestConfigValidation:
         """Test config with dangerous lot size"""
         config = BotConfig(
             mode="paper",
-            provider="exness",
+            provider=["exness"],
             account="demo",
             symbol="XAUUSDm",
             lot=0.1,  # High lot
-            leverage=2000,
+            leverage=100,
             strategy="xau_hedging",
             sl_pips=500,
             tp_pips=1000,
@@ -186,7 +186,7 @@ class TestConfigValidation:
         """Test config with low leverage"""
         config = BotConfig(
             mode="paper",
-            provider="exness",
+            provider=["exness"],
             account="demo",
             symbol="XAUUSDm",
             lot=0.01,
@@ -202,11 +202,11 @@ class TestConfigValidation:
         """Test real mode config"""
         config = BotConfig(
             mode="real",
-            provider="exness",
+            provider=["exness"],
             account="real",  # Must be real
             symbol="XAUUSDm",
             lot=0.01,
-            leverage=2000,
+            leverage=100,
             strategy="xau_hedging",
             sl_pips=500,
             tp_pips=1000,
@@ -219,7 +219,7 @@ class TestConfigValidation:
         """Test CCXT-specific config"""
         config = BotConfig(
             mode="frontest",
-            provider="ccxt",
+            provider=["ccxt"],
             account="demo",
             symbol="BTC/USD",
             lot=0.01,
@@ -235,9 +235,10 @@ class TestConfigValidation:
             },
         )
 
-        assert config.provider == "ccxt"
+        assert config.provider == ["ccxt"]
         assert config.exchange == "binance"
-        assert config.credentials["sandbox"] is True
+        creds = config.credentials
+        assert creds is not None and creds.get("sandbox") is True
 
 
 if __name__ == "__main__":
