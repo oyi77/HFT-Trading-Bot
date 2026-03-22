@@ -56,6 +56,9 @@ class Strategy(ABC):
 
     def is_session_active(self, timestamp: Optional[int] = None) -> bool:
         """Check if trading is allowed in current session"""
+        # Timestamps may be in milliseconds (>1e10) — normalize to seconds
+        if timestamp and timestamp > 1e10:
+            timestamp = timestamp // 1000
         dt = datetime.fromtimestamp(timestamp) if timestamp else datetime.now()
         hour = dt.hour
         
