@@ -7,7 +7,7 @@ import logging
 from datetime import datetime
 from typing import Tuple
 
-from trading_bot.risk.circuit_breaker import CircuitBreaker
+from trading_bot.risk.circuit_breaker import TradingCircuitBreaker as CircuitBreaker
 from trading_bot.risk.loss_streak import LossStreakManager, LossStreakConfig
 
 logger = logging.getLogger(__name__)

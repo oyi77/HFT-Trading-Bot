@@ -105,6 +105,7 @@ class OstiumExchange:
         self.sdk: Optional[Any] = None
         self.connected = False
         self.trader_address: Optional[str] = None
+        self._loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()
 
         # Position tracking
         self.positions: List[OstiumPosition] = []
@@ -361,15 +362,17 @@ class OstiumExchange:
         await self._update_position_pnls_from_sdk()
 
     async def _update_position_pnls_from_sdk(self):
-        if not self.sdk or not self.trader_address:
+        sdk = getattr(self, "sdk", None)
+        trader_address = getattr(self, "trader_address", None)
+        if not sdk or not trader_address:
             return
 
         for position in getattr(self, "positions", []):
             try:
-                metrics = await self.sdk.get_open_trade_metrics(
+                metrics = await sdk.get_open_trade_metrics(
                     pair_id=position.pair_id,
                     trade_index=position.trade_index,
-                    trader_address=self.trader_address,
+                    trader_address=trader_address,
                 )
                 if metrics and isinstance(metrics, dict):
                     position.unrealized_pnl = float(
@@ -546,11 +549,15 @@ class OstiumExchange:
                     # Logic: Check if we already have this tx_hash recorded
                     exists = False
                     for t in self.trades:
-                        t_tx = t.tx_hash if hasattr(t, "tx_hash") else (t.get("tx_hash") if isinstance(t, dict) else None)
+                        t_tx = (
+                            t.tx_hash
+                            if hasattr(t, "tx_hash")
+                            else (t.get("tx_hash") if isinstance(t, dict) else None)
+                        )
                         if t_tx == tx_hash:
                             exists = True
                             break
-                    
+
                     if not exists:
                         self.trades.append(
                             Trade(
@@ -560,7 +567,7 @@ class OstiumExchange:
                                 amount=volume,
                                 price=current_price,
                                 tx_hash=tx_hash,
-                                timestamp=int(time.time())
+                                timestamp=int(time.time()),
                             )
                         )
                     logger.info(f"Position opened: {pos.id}")
@@ -795,6 +802,8 @@ class OstiumExchange:
         }
 
     def close(self):
+        if hasattr(self, "_loop") and not self._loop.is_closed():
+            self._loop.close()
         self.connected = False
 
     async def request_testnet_tokens(self) -> bool:
