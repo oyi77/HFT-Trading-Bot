@@ -176,22 +176,35 @@ class BacktestEngine:
         return self._calculate_results(data)
         
     def _process_bar(self, strategy: Strategy, row: pd.Series, timestamp: int, symbol: str):
-        """Process single bar"""
-        # OHLC
+        """Process single bar with OHLC walk simulation for realistic tick generation"""
         o, h, l, c = row['open'], row['high'], row['low'], row['close']
         
-        # Bid/ask with spread
-        bid = c - self.spread / 2
-        ask = c + self.spread / 2
+        # Simulate 4 ticks per bar: Open → High/Low → Low/High → Close
+        # Direction depends on whether bar is bullish or bearish
+        is_bullish = c >= o
         
-        # Check SL/TP for existing positions
-        self._check_exits(h, l, timestamp)
+        if is_bullish:
+            # Bullish bar: O → L → H → C
+            tick_prices = [o, l, h, c]
+        else:
+            # Bearish bar: O → H → L → C
+            tick_prices = [o, h, l, c]
         
-        # Get strategy signal (use close price)
-        signal = strategy.on_tick(c, bid, ask, self.positions, timestamp)
-        
-        if signal:
-            self._execute_signal(signal, symbol, ask, bid, timestamp)
+        for i, price in enumerate(tick_prices):
+            sub_ts = timestamp + i  # Slight timestamp offset per sub-tick
+            
+            bid = price - self.spread / 2
+            ask = price + self.spread / 2
+            
+            # Check SL/TP with the sub-tick high/low
+            if i == 0:
+                self._check_exits(h, l, sub_ts)
+            
+            # Get strategy signal
+            signal = strategy.on_tick(price, bid, ask, self.positions, sub_ts)
+            
+            if signal:
+                self._execute_signal(signal, symbol, ask, bid, sub_ts)
             
     def _execute_signal(
         self,
