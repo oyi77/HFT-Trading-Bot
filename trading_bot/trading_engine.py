@@ -26,9 +26,10 @@ from trading_bot.strategy.ib_breakout import IBBreakoutStrategy, IBBreakoutConfi
 from trading_bot.strategy.momentum import MomentumGridStrategy, MomentumGridConfig
 from trading_bot.strategy.seven_candle import SevenCandleStrategy, SevenCandleConfig
 from trading_bot.strategy.bb_macd_rsi import BBMacdRsiStrategy, BBMacdRsiConfig
-from trading_bot.strategy.ai_strategy import AIStrategy, AIStrategyConfig
+from trading_bot.strategy.ai_strategy import AIStrategy, AIStrategyConfig, BEST_XAU_H1, CONSERVATIVE_XAU_H1
 from trading_bot.strategy.zerolag import ZeroLagStrategy, ZeroLagConfig
 from trading_bot.interface.base import InterfaceConfig
+from trading_bot.interface.telegram_notifier import TelegramNotifier
 from trading_bot.risk.manager import RiskManager
 
 # Type alias for exchanges
@@ -49,6 +50,12 @@ STRATEGY_MAP = {
     "bb_macd_rsi": (BBMacdRsiStrategy, BBMacdRsiConfig),
     "ai": (AIStrategy, AIStrategyConfig),
     "zerolag": (ZeroLagStrategy, ZeroLagConfig),
+}
+
+# Named presets — use strategy="ai_best" or strategy="ai_conservative"
+STRATEGY_PRESETS = {
+    "ai_best": (AIStrategy, BEST_XAU_H1),
+    "ai_conservative": (AIStrategy, CONSERVATIVE_XAU_H1),
 }
 
 
@@ -139,6 +146,9 @@ class TradingEngine:
         # Risk Management
         self.risk_manager = RiskManager(self.config)
         self.last_realized_pnl = 0.0
+
+        # Telegram Notifications
+        self.notifier = TelegramNotifier()
 
         # Metrics
         self.metrics = TradingMetrics()
@@ -254,9 +264,15 @@ class TradingEngine:
 
             # Create strategy based on config.strategy name
             strategy_name = getattr(self.config, 'strategy', 'xau_hedging')
-            strategy_entry = STRATEGY_MAP.get(strategy_name)
-            if strategy_entry:
-                StrategyClass, ConfigClass = strategy_entry
+
+            # Check presets first (ai_best, ai_conservative)
+            if strategy_name in STRATEGY_PRESETS:
+                StrategyClass, preset_config = STRATEGY_PRESETS[strategy_name]
+                self.strategy = StrategyClass(preset_config)
+                if self.interface:
+                    self.interface.log(f"Using preset: {strategy_name}", "info")
+            elif strategy_name in STRATEGY_MAP:
+                StrategyClass, ConfigClass = STRATEGY_MAP[strategy_name]
                 strategy_config = ConfigClass(lots=self.config.lot)
                 # Forward SL/TP for configs that support them
                 if hasattr(strategy_config, 'stop_loss'):
@@ -489,6 +505,15 @@ class TradingEngine:
             if not can_trade:
                 if self.interface:
                     self.interface.log(f"⚠️ TRADING HALTED: {risk_reason}", "error")
+                # Notify Telegram about risk halt
+                try:
+                    self.notifier.notify_risk_alert(
+                        alert_type="trading_halted",
+                        message=risk_reason,
+                        severity="high"
+                    )
+                except Exception:
+                    pass
                 # Skip signal processing
                 self.metrics.balance = aggregated_balance
                 self.metrics.equity = aggregated_equity
@@ -547,6 +572,20 @@ class TradingEngine:
                                 f"📈 {side.upper()} {signal['amount']} @ {self.metrics.price:.2f} on {broker_name}{sl_tp_info}",
                                 "trade",
                             )
+                        # Telegram notification
+                        try:
+                            strategy_label = getattr(self.config, 'strategy', 'unknown')
+                            self.notifier.notify_trade_open(
+                                symbol=self.config.symbol,
+                                side=side,
+                                price=self.metrics.price,
+                                sl=sl,
+                                tp=tp,
+                                lot_size=signal['amount'],
+                                strategy_name=strategy_label,
+                            )
+                        except Exception:
+                            pass
 
             # Update aggregated metrics
             self.metrics.balance = aggregated_balance
@@ -633,6 +672,21 @@ class TradingEngine:
             for pos in positions:
                 try:
                     self._execute_close_safely(exchange, pos.id)
+                    # Telegram notification for closed position
+                    try:
+                        side_str = pos.side.value if hasattr(pos.side, 'value') else str(pos.side)
+                        pnl = getattr(pos, 'unrealized_pnl', 0) or 0
+                        self.notifier.notify_trade_close(
+                            symbol=self.config.symbol,
+                            side=side_str,
+                            entry_price=pos.entry_price,
+                            exit_price=self.metrics.price,
+                            pnl=pnl,
+                            reason="emergency_close",
+                        )
+                        self.risk_manager.on_trade_result(pnl)
+                    except Exception:
+                        pass
                 except Exception as e:
                     broker_name = getattr(exchange, "name", exchange.__class__.__name__)
                     if self.interface:
@@ -644,6 +698,14 @@ class TradingEngine:
         else:
             if self.interface:
                 self.interface.log(f"Emergency: Closing {total_positions} positions across all brokers", "warn")
+            try:
+                self.notifier.notify_risk_alert(
+                    alert_type="emergency_close",
+                    message=f"Closed {total_positions} positions (emergency)",
+                    severity="critical",
+                )
+            except Exception:
+                pass
 
     def get_stats(self) -> Dict[str, Any]:
         """Get current aggregated trading statistics"""
