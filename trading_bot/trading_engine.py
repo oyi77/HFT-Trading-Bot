@@ -37,6 +37,9 @@ from trading_bot.interface.base import InterfaceConfig
 from trading_bot.risk.circuit_breaker import CircuitBreaker, CircuitBreakerError
 from trading_bot.interface.telegram_notifier import TelegramNotifier
 from trading_bot.risk.manager import RiskManager
+from trading_bot.risk.audit import AuditLogger, AuditEventType
+from trading_bot.risk.validators import create_default_validator_chain
+from trading_bot.core.state import StateManager
 
 # Type alias for exchanges
 ExchangeType = Union[SimulatorExchange, OstiumExchange, ExnessExchange, BybitExchange]
@@ -158,6 +161,20 @@ class TradingEngine:
 
         # Telegram Notifications
         self.notifier = TelegramNotifier()
+
+        # Audit logging
+        self.audit = AuditLogger(log_dir="logs", enabled=True)
+
+        # Pre-trade validator chain
+        self.validators = create_default_validator_chain(
+            max_positions=getattr(config, 'max_positions', 2),
+            min_balance=10.0,
+            min_lot=0.01,
+            max_lot=1.0,
+        )
+
+        # State persistence for crash recovery
+        self.state_manager = StateManager(state_dir="data", auto_save_interval=30.0)
 
         # Metrics
         self.metrics = TradingMetrics()
@@ -588,7 +605,7 @@ class TradingEngine:
             # Update Risk Manager with realized PNL delta
             pnl_delta = aggregated_pnl - self.last_realized_pnl
             if abs(pnl_delta) > 0.0001:
-                self.risk_manager.update_pnl(pnl_delta)
+                self.risk_manager.on_trade_result(pnl_delta)
                 self.last_realized_pnl = aggregated_pnl
 
             # Check Risk Limits
@@ -632,7 +649,28 @@ class TradingEngine:
                     if not can_trade:
                         if self.interface:
                             self.interface.log(f"Risk blocked: {reason}", "warn")
+                        self.audit.log_risk_check(self.config.symbol, "risk_manager", False, reason)
                         return
+
+                # Pre-trade validation chain
+                validation_context = {
+                    "price": self.metrics.price,
+                    "balance": aggregated_balance,
+                    "equity": aggregated_equity,
+                    "positions": aggregated_positions,
+                }
+                val_result = self.validators.validate(signal, validation_context)
+                if not val_result.valid:
+                    if self.interface:
+                        self.interface.log(f"Validation failed: {val_result.reason}", "warn")
+                    self.audit.log(
+                        AuditEventType.SIGNAL_REJECTED, self.config.symbol,
+                        {"signal": str(signal), "validator": val_result.validator_name},
+                        "failure", val_result.reason,
+                    )
+                    return
+
+                self.audit.log_signal(self.config.symbol, signal)
 
                 side_val = signal["side"]
                 side = side_val.value if hasattr(side_val, "value") else side_val
@@ -705,6 +743,23 @@ class TradingEngine:
             if self.interface:
                 self.interface.update_metrics(self.metrics.to_dict())
 
+            # Auto-save state for crash recovery
+            if self.state_manager.should_auto_save():
+                self.state_manager.save(
+                    symbol=self.config.symbol,
+                    balance=aggregated_balance,
+                    equity=aggregated_equity,
+                    positions=[
+                        {"id": getattr(p, "id", ""), "side": str(getattr(p, "side", "")),
+                         "entry_price": getattr(p, "entry_price", 0)}
+                        for p in aggregated_positions
+                    ],
+                    trades_count=aggregated_trades,
+                    daily_pnl=self.risk_manager.daily_pnl if self.risk_manager else 0,
+                    config={"strategy": getattr(self.config, "strategy", ""),
+                            "mode": getattr(self.config, "mode", "")},
+                )
+
         except Exception as e:
             if self.interface:
                 self.interface.log(f"Update error: {e}", "error")
@@ -744,6 +799,23 @@ class TradingEngine:
             self.interface.log(
                 f"Total Aggregated Trades: {self.metrics.trades}", "info"
             )
+
+        # Flush audit log and save final state
+        try:
+            self.audit.flush()
+            self.state_manager.save(
+                symbol=self.config.symbol,
+                balance=self.metrics.balance,
+                equity=self.metrics.equity,
+                positions=[],
+                trades_count=self.metrics.trades,
+                daily_pnl=self.risk_manager.daily_pnl if self.risk_manager else 0,
+                config={"strategy": getattr(self.config, "strategy", ""),
+                        "mode": getattr(self.config, "mode", "")},
+            )
+            self.state_manager.backup()
+        except Exception:
+            pass
 
     def pause(self):
         """Pause trading"""
