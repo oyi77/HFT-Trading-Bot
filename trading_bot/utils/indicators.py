@@ -172,9 +172,32 @@ def calculate_macd(
 
     macd_line = fast_ema - slow_ema
 
-    # For signal line, we'd need MACD history
-    # Simplified: use MACD as approximation
-    signal_line = macd_line * 0.9  # Approximation
+    # Build MACD line history from slow_period onward
+    multiplier_fast = 2 / (fast_period + 1)
+    multiplier_slow = 2 / (slow_period + 1)
+
+    # Seed EMAs using SMA of first slow_period values
+    fast_ema_val = sum(closes[:fast_period]) / fast_period
+    slow_ema_val = sum(closes[:slow_period]) / slow_period
+
+    # Advance fast EMA to slow_period index
+    for i in range(fast_period, slow_period):
+        fast_ema_val = (closes[i] - fast_ema_val) * multiplier_fast + fast_ema_val
+
+    # Now iterate from slow_period to end, collecting MACD history
+    macd_history = []
+    for i in range(slow_period, len(closes)):
+        fast_ema_val = (closes[i] - fast_ema_val) * multiplier_fast + fast_ema_val
+        slow_ema_val = (closes[i] - slow_ema_val) * multiplier_slow + slow_ema_val
+        macd_history.append(fast_ema_val - slow_ema_val)
+
+    # Signal line = 9-period EMA of MACD history
+    signal_line = calculate_ema(macd_history, signal_period)
+    if signal_line is None:
+        return None
+
+    # Use the final MACD value (last element of history)
+    macd_line = macd_history[-1]
     histogram = macd_line - signal_line
 
     return (macd_line, signal_line, histogram)
