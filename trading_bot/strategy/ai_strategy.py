@@ -80,6 +80,40 @@ class AIStrategyConfig:
     fallback_rsi_sell: float = 65.0
 
 
+# ── Production Presets ─────────────────────────────────────────────────────────
+# Discovered via strategy_sweep.py on 3-month XAU/USD H1 data (Dec 2025 – Mar 2026)
+# +12.1% return, 33 trades, 54.5% win rate, PF 1.17, Sharpe 1.16, Max DD 20.1%
+
+BEST_XAU_H1 = AIStrategyConfig(
+    lots=0.05,
+    max_positions=2,
+    min_training_samples=50,
+    retrain_interval=20,
+    confidence_threshold=0.55,
+    atr_sl_multiplier=3.0,
+    atr_tp_multiplier=4.0,
+    lookahead_bars=10,
+    label_threshold_pct=0.001,
+    fallback_rsi_buy=35.0,
+    fallback_rsi_sell=65.0,
+)
+
+# Conservative version — tighter confidence, smaller lots
+CONSERVATIVE_XAU_H1 = AIStrategyConfig(
+    lots=0.02,
+    max_positions=1,
+    min_training_samples=50,
+    retrain_interval=20,
+    confidence_threshold=0.60,
+    atr_sl_multiplier=3.0,
+    atr_tp_multiplier=4.0,
+    lookahead_bars=10,
+    label_threshold_pct=0.001,
+    fallback_rsi_buy=30.0,
+    fallback_rsi_sell=70.0,
+)
+
+
 class AIStrategy(Strategy):
     """
     AI-Integrated Trading Strategy

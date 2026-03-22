@@ -176,22 +176,43 @@ class BacktestEngine:
         return self._calculate_results(data)
         
     def _process_bar(self, strategy: Strategy, row: pd.Series, timestamp: int, symbol: str):
-        """Process single bar"""
-        # OHLC
+        """Process single bar with OHLC walk simulation for realistic tick generation"""
         o, h, l, c = row['open'], row['high'], row['low'], row['close']
         
-        # Bid/ask with spread
-        bid = c - self.spread / 2
-        ask = c + self.spread / 2
+        # Simulate 4 ticks per bar: Open → High/Low → Low/High → Close
+        # Direction depends on whether bar is bullish or bearish
+        is_bullish = c >= o
         
-        # Check SL/TP for existing positions
-        self._check_exits(h, l, timestamp)
+        if is_bullish:
+            # Bullish bar: O → L → H → C
+            tick_prices = [o, l, h, c]
+        else:
+            # Bearish bar: O → H → L → C
+            tick_prices = [o, h, l, c]
         
-        # Get strategy signal (use close price)
-        signal = strategy.on_tick(c, bid, ask, self.positions, timestamp)
-        
-        if signal:
-            self._execute_signal(signal, symbol, ask, bid, timestamp)
+        for i, price in enumerate(tick_prices):
+            sub_ts = timestamp + i  # Slight timestamp offset per sub-tick
+
+            # Use actual bar H/L for ask/bid so strategies build realistic ATR
+            # On the final (close) tick, narrow back to spread around close
+            if i < len(tick_prices) - 1:
+                # Intermediate ticks: bid=low, ask=high for the bar
+                bid = l - self.spread / 2
+                ask = h + self.spread / 2
+            else:
+                # Close tick: tight spread around close price
+                bid = price - self.spread / 2
+                ask = price + self.spread / 2
+
+            # Check SL/TP with the sub-tick high/low
+            if i == 0:
+                self._check_exits(h, l, sub_ts)
+
+            # Get strategy signal (use close price as mid)
+            signal = strategy.on_tick(price, bid, ask, self.positions, sub_ts)
+
+            if signal:
+                self._execute_signal(signal, symbol, ask, bid, sub_ts)
             
     def _execute_signal(
         self,
@@ -205,20 +226,24 @@ class BacktestEngine:
         action = signal.get('action')
         
         if action == 'open':
-            side = signal.get('side', 'long')
+            raw_side = signal.get('side', 'buy')
             volume = signal.get('amount', 0.01)
             sl = signal.get('sl')
             tp = signal.get('tp')
-            
-            entry_price = ask if side == 'long' else bid
-            
+
+            # Normalize side — strategies may pass OrderSide enum or str
+            side_str = str(raw_side.value if hasattr(raw_side, 'value') else raw_side).lower()
+            is_long = side_str in ('buy', 'long')
+
+            entry_price = ask if is_long else bid
+
             # Add slippage
-            if side == 'long':
+            if is_long:
                 entry_price += self.slippage
             else:
                 entry_price -= self.slippage
-                
-            self._open_position(symbol, side, entry_price, volume, sl, tp, timestamp)
+
+            self._open_position(symbol, side_str, entry_price, volume, sl, tp, timestamp)
             
     def _open_position(
         self,
@@ -253,22 +278,25 @@ class BacktestEngine:
         for pos in list(self.positions):
             exit_price = None
             exit_reason = ""
-            
+
+            # Normalize side for comparison
+            is_long = pos.side in (PositionSide.LONG, 'long', 'buy')
+
             # Check SL
             if pos.sl:
-                if pos.side == 'long' and low <= pos.sl:
+                if is_long and low <= pos.sl:
                     exit_price = pos.sl
                     exit_reason = "SL"
-                elif pos.side == 'short' and high >= pos.sl:
+                elif not is_long and high >= pos.sl:
                     exit_price = pos.sl
                     exit_reason = "SL"
                     
             # Check TP
             if not exit_price and pos.tp:
-                if pos.side == 'long' and high >= pos.tp:
+                if is_long and high >= pos.tp:
                     exit_price = pos.tp
                     exit_reason = "TP"
-                elif pos.side == 'short' and low <= pos.tp:
+                elif not is_long and low <= pos.tp:
                     exit_price = pos.tp
                     exit_reason = "TP"
                     
