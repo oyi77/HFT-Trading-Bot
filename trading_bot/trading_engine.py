@@ -38,6 +38,10 @@ from trading_bot.strategy.zerolag import ZeroLagStrategy, ZeroLagConfig
 from trading_bot.strategy.smc_scalper import SMCScalperStrategy, SMCScalperConfig
 from trading_bot.strategy.mean_reversion_scalper import MeanReversionScalper, MeanReversionConfig
 from trading_bot.strategy.regime_scalper import RegimeScalperStrategy, RegimeScalperConfig
+from trading_bot.strategy.multi_factor import (
+    MultiFactorStrategy, MultiFactorConfig,
+    MF_H1_SAFE, MF_H1_BEST, MF_M15_BEST, MF_M15_FAST,
+)
 from trading_bot.interface.base import InterfaceConfig
 from trading_bot.risk.circuit_breaker import CircuitBreaker, CircuitBreakerError
 from trading_bot.interface.telegram_notifier import TelegramNotifier
@@ -67,6 +71,7 @@ STRATEGY_MAP = {
     "smc_scalper": (SMCScalperStrategy, SMCScalperConfig),
     "mean_reversion": (MeanReversionScalper, MeanReversionConfig),
     "regime_scalper": (RegimeScalperStrategy, RegimeScalperConfig),
+    "multi_factor": (MultiFactorStrategy, MultiFactorConfig),
 }
 
 # Named presets — use strategy="ai_best" or strategy="ai_conservative"
@@ -77,13 +82,22 @@ STRATEGY_PRESETS = {
     # M15 scalping presets — experimental, use paper first
     "ai_scalp_aggressive": (AIStrategy, AI_SCALP_AGGRESSIVE),  # more entries, faster TP
     "ai_scalp_safe":       (AIStrategy, AI_SCALP_SAFE),         # fewer entries, better quality
-    # SMC Scalper — best performing M15 scalper from backtest sweep
+    # SMC Scalper — best M15 scalper, low DD
     # +4.1% / 2mo M15, 13T, WR53.8%, PF1.42, Sharpe2.44, DD6.2%
     "smc_best": (SMCScalperStrategy, SMCScalperConfig(
         lots=0.05, max_positions=2,
         atr_sl_multiplier=1.5, atr_tp_multiplier=3.0,
         ob_strength_min=0.2, min_bars=30,
     )),
+    # Multi-Factor — NEW best strategy overall
+    # mf_h1_safe:  +71.4% / 3mo H1, 74T, WR43%, PF1.46, Sharpe2.12, DD13.8% ← TOP PICK
+    # mf_h1_best:  +72.1% / 3mo H1, 73T, WR44%, PF1.48, Sharpe2.37, DD23.1%
+    # mf_m15_best: +44.0% / 2mo M15, 75T, WR44%, PF1.33, Sharpe1.82, DD16.5%
+    # mf_m15_fast: +39.6% / 2mo M15, 23T, WR52%, PF1.79, Sharpe3.50, DD14.4% ← BEST SHARPE
+    "mf_h1_safe":  (MultiFactorStrategy, MF_H1_SAFE),
+    "mf_h1_best":  (MultiFactorStrategy, MF_H1_BEST),
+    "mf_m15_best": (MultiFactorStrategy, MF_M15_BEST),
+    "mf_m15_fast": (MultiFactorStrategy, MF_M15_FAST),
 }
 
 
