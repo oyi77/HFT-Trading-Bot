@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Live Paper Trading Monitor — SMC Scalper + AI Best
-Fetches real-time XAU price, runs strategies, logs signals to file + Telegram.
-Run via cron every 15 minutes for M15 strategy.
+Live Paper Trading Monitor — SMC + AI + Multi-Factor (3 strategies)
+Fetches real-time XAU price, runs strategies, logs signals + Telegram alerts.
+Cron: */15 * * * *
 """
 
 import os
@@ -18,6 +18,7 @@ import yfinance as yf
 import pandas as pd
 
 from trading_bot.strategy.smc_scalper import SMCScalperStrategy, SMCScalperConfig
+from trading_bot.strategy.multi_factor import MultiFactorStrategy, MF_H1_SAFE, MF_M15_BEST
 from trading_bot.strategy.ai_strategy import AIStrategy, BEST_XAU_H1
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
@@ -180,7 +181,7 @@ def run():
         if len(h1_data) >= 50:
             ai = AIStrategy(BEST_XAU_H1)
             for i, row in h1_data.iterrows():
-                sig = ai.on_tick(float(row['Close']), float(row['Low']), float(row['High']), state['positions'], 0)
+                sig = ai.on_tick(float(row['Close']), float(row['Low']), float(row['High']), [], 0)
                 if sig:
                     ai_signal = sig
                     ai_signal['_time'] = str(i)
@@ -190,12 +191,43 @@ def run():
     except Exception as e:
         logger.error(f"H1 data fetch error: {e}")
 
+    # ── STRATEGY 3: Multi-Factor H1 (NEW — best overall) ─────────────
+    mf_h1_signal = None
+    mf_m15_signal = None
+    try:
+        h1_for_mf = h1_data if 'h1_data' in dir() and len(h1_data) >= 60 else None
+        if h1_for_mf is not None:
+            mf_h1 = MultiFactorStrategy(MF_H1_SAFE)
+            for i, row in h1_for_mf.iterrows():
+                sig = mf_h1.on_tick(float(row['Close']), float(row['Low']), float(row['High']), state['positions'], 0)
+                if sig:
+                    mf_h1_signal = sig
+                    mf_h1_signal['_time'] = str(i)
+                    mf_h1_signal['_strategy'] = 'mf_h1_safe'
+            logger.info(f"MF_H1: Signal={'YES' if mf_h1_signal and mf_h1_signal.get('_time')==str(h1_for_mf.index[-1]) else 'NO'}")
+
+        # Multi-Factor M15
+        mf_m15 = MultiFactorStrategy(MF_M15_BEST)
+        for i, row in data.iterrows():
+            sig = mf_m15.on_tick(float(row['Close']), float(row['Low']), float(row['High']), state['positions'], 0)
+            if sig:
+                mf_m15_signal = sig
+                mf_m15_signal['_time'] = str(i)
+                mf_m15_signal['_strategy'] = 'mf_m15_best'
+        logger.info(f"MF_M15: Signal={'YES' if mf_m15_signal and mf_m15_signal.get('_time')==latest_time else 'NO'}")
+    except Exception as e:
+        logger.error(f"MF strategy error: {e}")
+
     # ── PROCESS SIGNALS ────────────────────────────────────────────────
     all_signals = []
     if last_smc_signal and last_smc_signal.get('_time') == latest_time:
         all_signals.append(last_smc_signal)
-    if ai_signal and ai_signal.get('_time') == str(h1_data.index[-1]) if 'h1_data' in dir() and len(h1_data) > 0 else False:
+    if ai_signal and 'h1_data' in dir() and len(h1_data) > 0 and ai_signal.get('_time') == str(h1_data.index[-1]):
         all_signals.append(ai_signal)
+    if mf_h1_signal and 'h1_data' in dir() and len(h1_data) > 0 and mf_h1_signal.get('_time') == str(h1_data.index[-1]):
+        all_signals.append(mf_h1_signal)
+    if mf_m15_signal and mf_m15_signal.get('_time') == latest_time:
+        all_signals.append(mf_m15_signal)
 
     for signal in all_signals:
         strat_name = signal.get('_strategy', 'unknown')
@@ -207,7 +239,7 @@ def run():
             continue
 
         open_count = len(state['positions'])
-        max_pos = 4  # 2 per strategy
+        max_pos = 8  # 2 per strategy × 4 strategies
         strat_positions = sum(1 for p in state['positions'] if p.get('strategy') == strat_name)
 
         if open_count >= max_pos or strat_positions >= 2:
@@ -231,10 +263,13 @@ def run():
         trend_label = ''
         if strat_name == 'smc_best':
             trend_label = 'BULLISH' if smc.trend == 1 else 'BEARISH'
+        elif 'mf_' in strat_name:
+            trend_label = 'Multi-Factor'
         else:
             trend_label = 'AI-ML'
 
-        emoji = '🔵' if strat_name == 'ai_best' else '🟢'
+        emoji_map = {'smc_best': '🟢', 'ai_best': '🔵', 'mf_h1_safe': '🟡', 'mf_m15_best': '🟠'}
+        emoji = emoji_map.get(strat_name, '⚪')
         msg = (
             f"{emoji} *NEW SIGNAL — {strat_name.upper()}*\n"
             f"Side: *{signal['side'].upper()}*\n"
@@ -255,9 +290,11 @@ def run():
         logger.info(f"No new signals. SMC trend: {smc_trend}")
 
     # Status summary
-    smc_pos = sum(1 for p in state['positions'] if p.get('strategy') == 'smc_best')
-    ai_pos = sum(1 for p in state['positions'] if p.get('strategy') == 'ai_best')
-    logger.info(f"Balance: ${state['balance']:,.2f} | PnL: ${state['total_pnl']:+,.2f} | SMC:{smc_pos} AI:{ai_pos} | Trades: {len(state['trades'])}")
+    smc_pos  = sum(1 for p in state['positions'] if p.get('strategy') == 'smc_best')
+    ai_pos   = sum(1 for p in state['positions'] if p.get('strategy') == 'ai_best')
+    mfh1_pos = sum(1 for p in state['positions'] if p.get('strategy') == 'mf_h1_safe')
+    mfm15_pos= sum(1 for p in state['positions'] if p.get('strategy') == 'mf_m15_best')
+    logger.info(f"Balance: ${state['balance']:,.2f} | PnL: ${state['total_pnl']:+,.2f} | SMC:{smc_pos} AI:{ai_pos} MF_H1:{mfh1_pos} MF_M15:{mfm15_pos} | Trades: {len(state['trades'])}")
 
     save_state(state)
 
