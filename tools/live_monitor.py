@@ -154,7 +154,7 @@ def run():
     # Check exits first
     check_exits(state, current_price)
 
-    # Initialize SMC strategy and warm it up
+    # ── STRATEGY 1: SMC Scalper (M15) ──────────────────────────────────
     smc_cfg = SMCScalperConfig(
         lots=0.05, max_positions=2,
         atr_sl_multiplier=1.5, atr_tp_multiplier=3.0,
@@ -162,57 +162,102 @@ def run():
     )
     smc = SMCScalperStrategy(smc_cfg)
 
-    # Feed all bars to warm up strategy state
-    last_signal = None
+    last_smc_signal = None
     for i, row in data.iterrows():
         sig = smc.on_tick(float(row['Close']), float(row['Low']), float(row['High']), state['positions'], 0)
         if sig:
-            last_signal = sig
-            last_signal['_time'] = str(i)
+            last_smc_signal = sig
+            last_smc_signal['_time'] = str(i)
+            last_smc_signal['_strategy'] = 'smc_best'
 
-    # Only act on the very last bar's signal (current)
-    # Check if we already signaled this bar
-    if last_signal and last_signal.get('_time') == latest_time:
-        if state['last_signal_time'] != latest_time:
-            # New signal!
-            open_count = len(state['positions'])
-            if open_count < 2:
-                pos = {
-                    'side': last_signal['side'],
-                    'entry_price': current_price,
-                    'sl': last_signal['sl'],
-                    'tp': last_signal['tp'],
-                    'lots': last_signal['amount'],
-                    'time': now.isoformat(),
-                    'strategy': 'smc_best',
-                }
-                state['positions'].append(pos)
-                state['last_signal_time'] = latest_time
+    # ── STRATEGY 2: AI Best (H1) ──────────────────────────────────────
+    # Fetch H1 data separately
+    ai_signal = None
+    try:
+        h1_data = yf.download("GC=F", period="30d", interval="1h", progress=False)
+        if hasattr(h1_data.columns, 'droplevel') and h1_data.columns.nlevels > 1:
+            h1_data.columns = h1_data.columns.droplevel(1)
+        if len(h1_data) >= 50:
+            ai = AIStrategy(BEST_XAU_H1)
+            for i, row in h1_data.iterrows():
+                sig = ai.on_tick(float(row['Close']), float(row['Low']), float(row['High']), state['positions'], 0)
+                if sig:
+                    ai_signal = sig
+                    ai_signal['_time'] = str(i)
+                    ai_signal['_strategy'] = 'ai_best'
+            h1_latest = str(h1_data.index[-1])
+            logger.info(f"AI_H1: {len(h1_data)} bars | Latest={h1_latest} | Signal={'YES' if ai_signal and ai_signal.get('_time')==h1_latest else 'NO'}")
+    except Exception as e:
+        logger.error(f"H1 data fetch error: {e}")
 
-                sl_dist = abs(current_price - last_signal['sl'])
-                tp_dist = abs(current_price - last_signal['tp'])
+    # ── PROCESS SIGNALS ────────────────────────────────────────────────
+    all_signals = []
+    if last_smc_signal and last_smc_signal.get('_time') == latest_time:
+        all_signals.append(last_smc_signal)
+    if ai_signal and ai_signal.get('_time') == str(h1_data.index[-1]) if 'h1_data' in dir() and len(h1_data) > 0 else False:
+        all_signals.append(ai_signal)
 
-                msg = (
-                    f"🔔 *NEW SIGNAL — SMC Scalper*\n"
-                    f"Side: *{last_signal['side'].upper()}*\n"
-                    f"Price: ${current_price:,.2f}\n"
-                    f"SL: ${last_signal['sl']:,.2f} (-${sl_dist:,.2f})\n"
-                    f"TP: ${last_signal['tp']:,.2f} (+${tp_dist:,.2f})\n"
-                    f"Trend: {'BULLISH' if smc.trend == 1 else 'BEARISH'}\n"
-                    f"Reason: {last_signal.get('reason', 'SMC')}\n"
-                    f"Open positions: {open_count + 1}/2\n"
-                    f"Balance: ${state['balance']:,.2f}"
-                )
-                send_telegram(msg)
-                logger.info(f"SIGNAL: {last_signal['side'].upper()} at ${current_price:,.2f}")
-                log_trade({'type': 'signal', 'time': now.isoformat(), **last_signal, 'price': current_price})
-            else:
-                logger.info("Signal blocked: max positions reached")
-    else:
-        logger.info(f"No new signal on latest bar. Trend: {'BULL' if smc.trend==1 else 'BEAR' if smc.trend==-1 else 'FLAT'}")
+    for signal in all_signals:
+        strat_name = signal.get('_strategy', 'unknown')
+        signal_time = signal.get('_time', '')
+
+        # Check if already signaled this bar for this strategy
+        last_key = f'last_signal_{strat_name}'
+        if state.get(last_key) == signal_time:
+            continue
+
+        open_count = len(state['positions'])
+        max_pos = 4  # 2 per strategy
+        strat_positions = sum(1 for p in state['positions'] if p.get('strategy') == strat_name)
+
+        if open_count >= max_pos or strat_positions >= 2:
+            logger.info(f"[{strat_name}] Signal blocked: positions full ({strat_positions}/2, total {open_count}/{max_pos})")
+            continue
+
+        pos = {
+            'side': signal['side'],
+            'entry_price': current_price,
+            'sl': signal['sl'],
+            'tp': signal['tp'],
+            'lots': signal['amount'],
+            'time': now.isoformat(),
+            'strategy': strat_name,
+        }
+        state['positions'].append(pos)
+        state[last_key] = signal_time
+
+        sl_dist = abs(current_price - signal['sl'])
+        tp_dist = abs(current_price - signal['tp'])
+        trend_label = ''
+        if strat_name == 'smc_best':
+            trend_label = 'BULLISH' if smc.trend == 1 else 'BEARISH'
+        else:
+            trend_label = 'AI-ML'
+
+        emoji = '🔵' if strat_name == 'ai_best' else '🟢'
+        msg = (
+            f"{emoji} *NEW SIGNAL — {strat_name.upper()}*\n"
+            f"Side: *{signal['side'].upper()}*\n"
+            f"Price: ${current_price:,.2f}\n"
+            f"SL: ${signal['sl']:,.2f} (-${sl_dist:,.2f})\n"
+            f"TP: ${signal['tp']:,.2f} (+${tp_dist:,.2f})\n"
+            f"Trend: {trend_label}\n"
+            f"Reason: {signal.get('reason', strat_name)}\n"
+            f"Positions: {strat_name}={strat_positions+1}/2, total={open_count+1}/{max_pos}\n"
+            f"Balance: ${state['balance']:,.2f}"
+        )
+        send_telegram(msg)
+        logger.info(f"[{strat_name}] SIGNAL: {signal['side'].upper()} at ${current_price:,.2f}")
+        log_trade({'type': 'signal', 'time': now.isoformat(), 'strategy': strat_name, **signal, 'price': current_price})
+
+    if not all_signals:
+        smc_trend = 'BULL' if smc.trend==1 else 'BEAR' if smc.trend==-1 else 'FLAT'
+        logger.info(f"No new signals. SMC trend: {smc_trend}")
 
     # Status summary
-    logger.info(f"Balance: ${state['balance']:,.2f} | PnL: ${state['total_pnl']:+,.2f} | Open: {len(state['positions'])} | Trades: {len(state['trades'])}")
+    smc_pos = sum(1 for p in state['positions'] if p.get('strategy') == 'smc_best')
+    ai_pos = sum(1 for p in state['positions'] if p.get('strategy') == 'ai_best')
+    logger.info(f"Balance: ${state['balance']:,.2f} | PnL: ${state['total_pnl']:+,.2f} | SMC:{smc_pos} AI:{ai_pos} | Trades: {len(state['trades'])}")
 
     save_state(state)
 
