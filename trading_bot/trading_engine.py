@@ -41,6 +41,7 @@ from trading_bot.strategy.regime_scalper import RegimeScalperStrategy, RegimeSca
 from trading_bot.strategy.multi_factor import (
     MultiFactorStrategy, MultiFactorConfig,
     MF_H1_SAFE, MF_H1_BEST, MF_M15_BEST, MF_M15_FAST,
+    MF_M15_ULTRA, MF_M15_ULTRA_FAST,
 )
 from trading_bot.interface.base import InterfaceConfig
 from trading_bot.risk.circuit_breaker import CircuitBreaker, CircuitBreakerError
@@ -94,10 +95,13 @@ STRATEGY_PRESETS = {
     # mf_h1_best:  +72.1% / 3mo H1, 73T, WR44%, PF1.48, Sharpe2.37, DD23.1%
     # mf_m15_best: +44.0% / 2mo M15, 75T, WR44%, PF1.33, Sharpe1.82, DD16.5%
     # mf_m15_fast: +39.6% / 2mo M15, 23T, WR52%, PF1.79, Sharpe3.50, DD14.4% ← BEST SHARPE
-    "mf_h1_safe":  (MultiFactorStrategy, MF_H1_SAFE),
-    "mf_h1_best":  (MultiFactorStrategy, MF_H1_BEST),
-    "mf_m15_best": (MultiFactorStrategy, MF_M15_BEST),
-    "mf_m15_fast": (MultiFactorStrategy, MF_M15_FAST),
+    "mf_h1_safe":       (MultiFactorStrategy, MF_H1_SAFE),
+    "mf_h1_best":       (MultiFactorStrategy, MF_H1_BEST),
+    "mf_m15_best":      (MultiFactorStrategy, MF_M15_BEST),
+    "mf_m15_fast":      (MultiFactorStrategy, MF_M15_FAST),
+    # ★ BEST CONFIGS OVERALL
+    "mf_m15_ultra":     (MultiFactorStrategy, MF_M15_ULTRA),      # +73% | Sharpe 5.96 | DD 7.7%
+    "mf_m15_ultra_fast":(MultiFactorStrategy, MF_M15_ULTRA_FAST), # +60% | Sharpe 5.46 | DD 7.7%
 }
 
 

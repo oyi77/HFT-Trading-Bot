@@ -18,7 +18,7 @@ import yfinance as yf
 import pandas as pd
 
 from trading_bot.strategy.smc_scalper import SMCScalperStrategy, SMCScalperConfig
-from trading_bot.strategy.multi_factor import MultiFactorStrategy, MF_H1_SAFE, MF_M15_BEST
+from trading_bot.strategy.multi_factor import MultiFactorStrategy, MF_H1_SAFE, MF_M15_ULTRA
 from trading_bot.strategy.ai_strategy import AIStrategy, BEST_XAU_H1
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
@@ -207,13 +207,13 @@ def run():
             logger.info(f"MF_H1: Signal={'YES' if mf_h1_signal and mf_h1_signal.get('_time')==str(h1_for_mf.index[-1]) else 'NO'}")
 
         # Multi-Factor M15
-        mf_m15 = MultiFactorStrategy(MF_M15_BEST)
+        mf_m15 = MultiFactorStrategy(MF_M15_ULTRA)
         for i, row in data.iterrows():
             sig = mf_m15.on_tick(float(row['Close']), float(row['Low']), float(row['High']), state['positions'], 0)
             if sig:
                 mf_m15_signal = sig
                 mf_m15_signal['_time'] = str(i)
-                mf_m15_signal['_strategy'] = 'mf_m15_best'
+                mf_m15_signal['_strategy'] = 'mf_m15_ultra'
         logger.info(f"MF_M15: Signal={'YES' if mf_m15_signal and mf_m15_signal.get('_time')==latest_time else 'NO'}")
     except Exception as e:
         logger.error(f"MF strategy error: {e}")
@@ -268,7 +268,7 @@ def run():
         else:
             trend_label = 'AI-ML'
 
-        emoji_map = {'smc_best': '🟢', 'ai_best': '🔵', 'mf_h1_safe': '🟡', 'mf_m15_best': '🟠'}
+        emoji_map = {'smc_best': '🟢', 'ai_best': '🔵', 'mf_h1_safe': '🟡', 'mf_m15_ultra': '🟠'}
         emoji = emoji_map.get(strat_name, '⚪')
         msg = (
             f"{emoji} *NEW SIGNAL — {strat_name.upper()}*\n"
@@ -293,7 +293,7 @@ def run():
     smc_pos  = sum(1 for p in state['positions'] if p.get('strategy') == 'smc_best')
     ai_pos   = sum(1 for p in state['positions'] if p.get('strategy') == 'ai_best')
     mfh1_pos = sum(1 for p in state['positions'] if p.get('strategy') == 'mf_h1_safe')
-    mfm15_pos= sum(1 for p in state['positions'] if p.get('strategy') == 'mf_m15_best')
+    mfm15_pos= sum(1 for p in state['positions'] if p.get('strategy') == 'mf_m15_ultra')
     logger.info(f"Balance: ${state['balance']:,.2f} | PnL: ${state['total_pnl']:+,.2f} | SMC:{smc_pos} AI:{ai_pos} MF_H1:{mfh1_pos} MF_M15:{mfm15_pos} | Trades: {len(state['trades'])}")
 
     save_state(state)

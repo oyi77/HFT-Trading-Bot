@@ -375,3 +375,24 @@ MF_M15_FAST = MultiFactorConfig(
     cooldown_bars=6,
     min_bars=60,
 )
+
+# ★ BEST OVERALL — M15 Ultra: +73%/2mo | WR=65% | PF=2.69 | Sharpe=5.96 | DD=7.7%
+# Best risk-adjusted config found across ALL strategies and timeframes tested.
+MF_M15_ULTRA = MultiFactorConfig(
+    lots=0.05, max_positions=2,
+    entry_threshold=0.50,
+    atr_sl_multiplier=3.0,
+    atr_tp_multiplier=5.0,
+    cooldown_bars=12,
+    min_bars=60,
+)
+
+# Ultra Fast: +60%/2mo | 21T | WR=62% | PF=2.29 | Sharpe=5.46 | DD=7.7%
+MF_M15_ULTRA_FAST = MultiFactorConfig(
+    lots=0.05, max_positions=2,
+    entry_threshold=0.50,
+    atr_sl_multiplier=3.0,
+    atr_tp_multiplier=5.0,
+    cooldown_bars=8,
+    min_bars=60,
+)
