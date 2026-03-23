@@ -113,6 +113,41 @@ CONSERVATIVE_XAU_H1 = AIStrategyConfig(
     fallback_rsi_sell=70.0,
 )
 
+# ── SCALPING PRESETS (M15 timeframe) ──────────────────────────────────────────
+# Backtested on 2 months XAUUSD M15 data.
+# NOTE: AI on M15 is not profitable yet (model needs more data to learn short patterns).
+# Use SMCScalperStrategy with smc_scalper_best preset for M15 scalping instead.
+
+# Aggressive scalping attempt — more entries, fast TP
+AI_SCALP_AGGRESSIVE = AIStrategyConfig(
+    lots=0.05,
+    max_positions=2,
+    min_training_samples=30,
+    retrain_interval=10,
+    confidence_threshold=0.45,
+    atr_sl_multiplier=1.5,
+    atr_tp_multiplier=2.5,
+    lookahead_bars=5,
+    label_threshold_pct=0.0005,
+    fallback_rsi_buy=30.0,
+    fallback_rsi_sell=70.0,
+)
+
+# Safe scalping — fewer entries, better quality signals
+AI_SCALP_SAFE = AIStrategyConfig(
+    lots=0.03,
+    max_positions=1,
+    min_training_samples=40,
+    retrain_interval=15,
+    confidence_threshold=0.55,
+    atr_sl_multiplier=2.0,
+    atr_tp_multiplier=3.0,
+    lookahead_bars=5,
+    label_threshold_pct=0.0005,
+    fallback_rsi_buy=28.0,
+    fallback_rsi_sell=72.0,
+)
+
 
 class AIStrategy(Strategy):
     """

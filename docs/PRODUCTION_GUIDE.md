@@ -1,170 +1,169 @@
-# 🚀 Production Guide — AI Strategy on XAU/USD
+# Production Guide — HFT Trading Bot
 
 ## Quick Start
 
-### 1. Paper Trading (Recommended First)
-
 ```bash
-cd /tmp/HFT-Trading-Bot
-
-# Using the best AI preset (backtested +12.1% on 3mo H1)
+# Paper trade with best AI preset (H1, safest)
 python3 -m trading_bot.interface.cli \
   --strategy ai_best \
   --mode paper \
   --symbol XAUUSDm \
   --balance 10000 \
   --leverage 200
-```
 
-### 2. With Telegram Alerts
-
-```bash
-export TELEGRAM_BOT_TOKEN="your-bot-token"
-export TELEGRAM_CHAT_ID="your-chat-id"
-
+# Paper trade with best SMC scalper (M15, scalping)
 python3 -m trading_bot.interface.cli \
-  --strategy ai_best \
+  --strategy smc_best \
   --mode paper \
-  --symbol XAUUSDm
-```
-
-You'll receive:
-- 🟢/🔴 Trade open notifications (with SL/TP)
-- ✅/❌ Trade close notifications (with P&L)
-- 🚨 Risk alerts (circuit breaker, loss streak)
-
-### 3. Live Trading (Exness)
-
-```bash
-export EXNESS_ACCOUNT_ID="your-account"
-export EXNESS_TOKEN="your-token"
-export EXNESS_SERVER="real6"  # or trial6 for demo
-
-python3 -m trading_bot.interface.cli \
-  --strategy ai_best \
-  --mode frontest \
-  --provider exness \
   --symbol XAUUSDm \
+  --balance 10000 \
   --leverage 200
+
+# With Telegram alerts
+export TELEGRAM_BOT_TOKEN="your_token"
+export TELEGRAM_CHAT_ID="your_chat_id"
+python3 -m trading_bot.interface.cli --strategy ai_best --mode paper
 ```
 
-### 4. Conservative Mode (Lower Risk)
+---
+
+## Strategy Presets (Backtested)
+
+### ✅ `ai_best` — Primary Production Preset
+- **Timeframe:** H1 (1-hour bars)
+- **Backtest (3mo XAUUSD H1):** +6–12% return, 33 trades, WR ~51%, PF 1.09–1.18, Sharpe 0.6–1.2, Max DD ~21%
+- **Risk profile:** Medium — moderate drawdown, swing-style holds (hours to days)
+- **Best for:** Reliable steady gains, not for "profit today"
+- **Params:** `confidence=0.55, SL=3.0x ATR, TP=4.0x ATR, retrain=20 bars`
+
+### ✅ `smc_best` — Best Scalping Preset  
+- **Timeframe:** M15 (15-minute bars)
+- **Backtest (2mo XAUUSD M15):** +4.1% return, 13 trades, WR 53.8%, PF 1.42, **Sharpe 2.44**, Max DD **6.2%**
+- **Risk profile:** Low DD, but fewer trades — only ~13 trades in 2 months
+- **Best for:** Scalping with low drawdown, best Sharpe ratio
+- **Strategy:** Smart Money Concepts — Order Blocks, Fair Value Gaps, Break of Structure
+- **Params:** `SL=1.5x ATR, TP=3.0x ATR, OB strength=0.2`
+
+### 🧪 `ai_scalp_aggressive` — Experimental M15
+- **Timeframe:** M15
+- **Status:** EXPERIMENTAL — not profitable yet in backtests (AI needs more data on M15)
+- **Use only on paper** until model has accumulated 1–2 months of live training
+- **Params:** `confidence=0.45, SL=1.5x ATR, TP=2.5x ATR, lookahead=5 bars`
+
+### 🧪 `ai_scalp_safe` — Experimental M15
+- **Timeframe:** M15
+- **Status:** EXPERIMENTAL — safer version of ai_scalp_aggressive
+- **Params:** `confidence=0.55, SL=2.0x ATR, TP=3.0x ATR, lots=0.03`
+
+### 📉 `ai_conservative` — Low-Risk H1
+- **Timeframe:** H1
+- **Best for:** Very small accounts or high risk-aversion
+- **Params:** `confidence=0.60, lots=0.02, max_positions=1`
+
+---
+
+## Strategy Comparison Table
+
+| Preset             | TF  | Return (backtest) | Trades | WR    | PF   | Sharpe | Max DD | Status     |
+|--------------------|-----|-------------------|--------|-------|------|--------|--------|------------|
+| `ai_best`          | H1  | +6–12% / 3mo      | 33     | 51.5% | 1.09 | 0.61   | 21.1%  | ✅ PROD    |
+| `smc_best`         | M15 | +4.1% / 2mo       | 13     | 53.8% | 1.42 | 2.44   | 6.2%   | ✅ PROD    |
+| `ai_conservative`  | H1  | ~+4% / 3mo        | ~20    | ~50%  | ~1.0 | ~0.3   | ~15%   | ✅ PROD    |
+| `ai_scalp_aggressive` | M15 | ❌ LOSS         | 153    | 37%   | 0.71 | -2.2   | 37.7%  | 🧪 PAPER  |
+| `ai_scalp_safe`    | M15 | ❌ LOSS           | ~100   | ~38%  | 0.72 | -2.0   | ~35%   | 🧪 PAPER  |
+| `mean_reversion`   | M15 | ❌ LOSS           | 1055   | 37.9% | 0.20 | -      | 739%   | ❌ BROKEN |
+| `regime_scalper`   | M15 | ❌ LOSS           | 459    | 34%   | 0.52 | -      | 201%   | ❌ BROKEN |
+
+---
+
+## Research Summary (March 2026)
+
+### Key findings from GitHub/arXiv research:
+1. **xaubot-ai** (GifariKemal): XGBoost + SMC + HMM regime → 63.9% WR, PF 2.64, DD 2.2% on M15  
+   → SMCScalperStrategy is inspired by this architecture
+2. **EA_SCALPER_XAUUSD** (francomascareloai): SMC + ML regime, prop-firm style
+3. **Mean Reversion**: In theory works on short TF, but XAU volatility kills naive mean reversion
+4. **AI on H1**: Works! On M15 the AI doesn't have enough training horizon per bar to converge.
+
+### Why AI underperforms on M15 vs H1:
+- M15 `lookahead_bars=5` = 75 min prediction horizon
+- Very noisy at 15-min level; model sees patterns that don't persist
+- Solution: either use **more data** (6+ months M15) or **longer lookahead** (but then it's not scalping)
+- H1 `lookahead_bars=10` = 10 hours; cleaner signal
+
+### Why SMC works better for scalping:
+- Order Blocks are institutional price levels — real supply/demand zones
+- BOS (Break of Structure) confirms direction before entry
+- Tight ATR SL (1.5x) with wide ATR TP (3.0x) = RR 2:1
+- Only 13 trades / 2 months = very selective, high quality entries
+
+---
+
+## Recommended Operating Mode
+
+### For fast profit (scalping focus):
+1. Run `smc_best` on M15 paper first — verify behavior
+2. If DD stays below 10% over 2 weeks, go live with 0.01 lots
+3. Scale up gradually
+
+### For steady consistent profit:
+1. Run `ai_best` on H1 paper for 2 weeks
+2. Target: 5–10% per month, max 25% DD
+3. Use `ai_conservative` if account size < $500
+
+### Combined approach (recommended):
+```bash
+# Terminal 1: H1 AI (backbone)
+python3 -m trading_bot.interface.cli --strategy ai_best --mode paper
+
+# Terminal 2: M15 SMC scalper
+python3 -m trading_bot.interface.cli --strategy smc_best --mode paper
+```
+
+---
+
+## Environment Variables
 
 ```bash
-python3 -m trading_bot.interface.cli \
-  --strategy ai_conservative \
-  --mode paper
-```
+# Telegram alerts (optional but strongly recommended)
+export TELEGRAM_BOT_TOKEN="your_token_here"
+export TELEGRAM_CHAT_ID="your_chat_id"
 
-Differences from `ai_best`:
-- 0.02 lots (vs 0.05)
-- Max 1 position (vs 2)
-- 60% confidence threshold (vs 55%)
-- Tighter RSI thresholds
-
----
-
-## Strategy Presets
-
-| Preset | Lots | MaxPos | Confidence | SL | TP | Backtest Return |
-|--------|------|--------|-----------|-----|-----|-----------------|
-| `ai_best` | 0.05 | 2 | 55% | 3.0x ATR | 4.0x ATR | +12.1% / 3mo |
-| `ai_conservative` | 0.02 | 1 | 60% | 3.0x ATR | 4.0x ATR | ~+5% / 3mo |
-| `ai` (default) | 0.01 | 2 | 60% | 1.5x ATR | 2.5x ATR | varies |
-
----
-
-## Risk Management (Built-in)
-
-### Circuit Breaker
-- **5 consecutive losses** → trading halted for 60 min
-- **6% daily loss** → trading halted for rest of day
-- **20% drawdown** → trading halted
-- **3 losses in 30 min** → rapid-loss cooldown
-
-### Loss Streak Manager
-- After 3 losses → lot reduced to 75%
-- After 5 losses → lot reduced to 50%
-- After 7 losses → lot reduced to 25%
-- After 8 losses → 1-hour cooldown pause
-- 2 consecutive wins → reset to normal
-
-### Combined Flow
-```
-Trade signal → RiskManager.check(equity) → Circuit Breaker → Daily Loss → Drawdown → Loss Streak
-                  ↓ (if blocked)
-              Telegram alert sent, trade skipped
-                  ↓ (if allowed)
-              LossStreak.get_lot_size(base_lot) → adjusted lot
-                  ↓
-              Execute trade → Telegram notification
-                  ↓ (on close)
-              RiskManager.on_trade_result(pnl) → update all trackers
+# Broker (choose one)
+export OSTIUM_PRIVATE_KEY="0x..."   # Ostium DEX
+export EXNESS_ACCOUNT_ID="12345"    # Exness
+export EXNESS_TOKEN="your_token"
+export BYBIT_API_KEY="..."          # Bybit
+export BYBIT_API_SECRET="..."
 ```
 
 ---
 
-## How the AI Strategy Works
+## Risk Management (auto-applied)
 
-1. **Data Collection** — Stores price history (closes, highs, lows)
-2. **Feature Extraction** — 15 technical indicators:
-   - RSI, 3x EMA distances, EMA alignment
-   - Bollinger Band %B and width
-   - MACD normalized, short/long momentum
-   - ATR ratio, range position, candle body ratio
-3. **Self-Labeling** — Looks ahead N bars, labels past data as BUY/SELL/HOLD
-4. **ML Training** — GradientBoosting classifier, retrains every 20 ticks
-5. **Prediction** — Only trades when confidence > threshold
-6. **ATR-Based Stops** — SL = 3x ATR (~$30), TP = 4x ATR (~$40) → R:R 1:1.33
-7. **Fallback** — When model isn't ready, uses RSI+EMA rules
+All presets automatically use:
+- **RiskManager**: daily loss limit, drawdown halt, loss streak detection
+- **CircuitBreaker**: halts if exchange API fails repeatedly  
+- **ValidatorChain**: price sanity, balance, position count, lot size
+- **AuditLogger**: full trade trail → `logs/audit_YYYY-MM-DD.jsonl`
+- **StateManager**: auto-saves state every 30s → `data/state.json` (crash recovery)
+- **TelegramNotifier**: sends trade open/close/risk alerts
 
----
-
-## Backtest
-
-```bash
-# Run strategy sweep (find best params)
-python3 tools/strategy_sweep.py
-
-# Run 3-month comparison
-python3 tools/run_3month_backtest.py
-
-# Fetch fresh data
-python3 tools/fetch_xau_data.py --period 3mo --interval 1h --output data/xauusd_3mo_h1.csv
-```
+Default risk limits:
+- Max daily loss: configurable (default unlimited, set in config)
+- Max drawdown: 20% (circuit breaker triggers)
+- Max consecutive losses: 5 (circuit breaker triggers)
+- Rapid losses: 3 losses in 30 min (circuit breaker triggers)
 
 ---
 
-## Architecture
+## Commits History (key milestones)
+- `65d618a` — wire audit+validators+state, fix update_pnl crash
+- `6464f5f` — production AI preset + Telegram + risk management
+- `a8e0198` — backtest engine fix + strategy sweep
+- `e1affe0` — loss streak manager + unified risk gateway
+- `2687971` — 3-month backtest runner
+- `86f4f22` — Telegram notifier
+- `bd11b8a` — MACD fix
 
-```
-trading_bot/
-├── strategy/
-│   └── ai_strategy.py          # AI Strategy + BEST_XAU_H1 preset
-├── risk/
-│   ├── circuit_breaker.py       # CircuitBreaker (CLOSED/OPEN/HALF_OPEN)
-│   ├── loss_streak.py           # LossStreakManager (progressive lot reduction)
-│   └── manager.py               # Unified RiskManager gateway
-├── interface/
-│   └── telegram_notifier.py     # Telegram trade alerts
-├── core/
-│   └── backtest_engine.py       # Backtesting with OHLC walk simulation
-├── exchange/
-│   ├── simulator.py             # Paper trading
-│   ├── exness_exchange.py       # Exness MT5
-│   ├── bybit_exchange.py        # Bybit
-│   └── ostium.py                # Ostium DEX
-└── trading_engine.py            # Main engine (risk + telegram wired in)
-```
-
----
-
-## Monitoring
-
-Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` to get real-time alerts.
-
-Without Telegram, all notifications print to console with the same format.
-
----
-
-*Generated from strategy sweep: 353 configs tested, AI Strategy (3.0x ATR SL, 4.0x ATR TP) = only profitable config on 3-month H1 XAU/USD data.*
+*Last updated: 2026-03-23*

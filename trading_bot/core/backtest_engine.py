@@ -153,6 +153,10 @@ class BacktestEngine:
         self.max_drawdown = 0.0
         self.max_drawdown_pct = 0.0
         
+        # Normalize column names to lowercase
+        data = data.copy()
+        data.columns = [c.lower() for c in data.columns]
+        
         total_rows = len(data)
         
         for i, row in data.iterrows():

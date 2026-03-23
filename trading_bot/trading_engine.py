@@ -31,8 +31,13 @@ from trading_bot.strategy.ai_strategy import (
     AIStrategyConfig,
     BEST_XAU_H1,
     CONSERVATIVE_XAU_H1,
+    AI_SCALP_AGGRESSIVE,
+    AI_SCALP_SAFE,
 )
 from trading_bot.strategy.zerolag import ZeroLagStrategy, ZeroLagConfig
+from trading_bot.strategy.smc_scalper import SMCScalperStrategy, SMCScalperConfig
+from trading_bot.strategy.mean_reversion_scalper import MeanReversionScalper, MeanReversionConfig
+from trading_bot.strategy.regime_scalper import RegimeScalperStrategy, RegimeScalperConfig
 from trading_bot.interface.base import InterfaceConfig
 from trading_bot.risk.circuit_breaker import CircuitBreaker, CircuitBreakerError
 from trading_bot.interface.telegram_notifier import TelegramNotifier
@@ -59,12 +64,26 @@ STRATEGY_MAP = {
     "bb_macd_rsi": (BBMacdRsiStrategy, BBMacdRsiConfig),
     "ai": (AIStrategy, AIStrategyConfig),
     "zerolag": (ZeroLagStrategy, ZeroLagConfig),
+    "smc_scalper": (SMCScalperStrategy, SMCScalperConfig),
+    "mean_reversion": (MeanReversionScalper, MeanReversionConfig),
+    "regime_scalper": (RegimeScalperStrategy, RegimeScalperConfig),
 }
 
 # Named presets — use strategy="ai_best" or strategy="ai_conservative"
 STRATEGY_PRESETS = {
-    "ai_best": (AIStrategy, BEST_XAU_H1),
-    "ai_conservative": (AIStrategy, CONSERVATIVE_XAU_H1),
+    # H1 presets — backtested profitable on 3-month XAUUSD H1
+    "ai_best":         (AIStrategy, BEST_XAU_H1),          # +6-12% / 3mo, 33T, WR51%, DD21%
+    "ai_conservative": (AIStrategy, CONSERVATIVE_XAU_H1),  # safer, fewer trades
+    # M15 scalping presets — experimental, use paper first
+    "ai_scalp_aggressive": (AIStrategy, AI_SCALP_AGGRESSIVE),  # more entries, faster TP
+    "ai_scalp_safe":       (AIStrategy, AI_SCALP_SAFE),         # fewer entries, better quality
+    # SMC Scalper — best performing M15 scalper from backtest sweep
+    # +4.1% / 2mo M15, 13T, WR53.8%, PF1.42, Sharpe2.44, DD6.2%
+    "smc_best": (SMCScalperStrategy, SMCScalperConfig(
+        lots=0.05, max_positions=2,
+        atr_sl_multiplier=1.5, atr_tp_multiplier=3.0,
+        ob_strength_min=0.2, min_bars=30,
+    )),
 }
 
 
