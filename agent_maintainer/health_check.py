@@ -7,9 +7,9 @@ warnings.filterwarnings('ignore')
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import yfinance as yf
 import pandas as pd
 
+from agent_maintainer.data_store import DataStore
 from trading_bot.core.backtest_engine import BacktestEngine
 from trading_bot.strategy.multi_factor import (
     MultiFactorStrategy,
@@ -73,8 +73,10 @@ def run_preset(name, strategy, data, balance=10000):
 
 
 def run_health_check():
-    print("[agent] Fetching market data…")
-    m15, h1 = fetch_data()
+    ds = DataStore()
+    print("[agent] Fetching market data via DataStore…")
+    m15 = ds.get("M15", days=30)
+    h1  = ds.get("H1",  days=60)
     print(f"[agent] M15: {len(m15)} bars | H1: {len(h1)} bars")
 
     smc_cfg = SMCScalperConfig(lots=0.05, max_positions=2,
@@ -113,7 +115,12 @@ def run_health_check():
         "best_preset": max(results, key=lambda x: x['sharpe'])["name"] if results else None,
     }
 
-    # Save to disk
+    # Save to DB for historical tracking
+    for r in results:
+        tf = "H1" if "h1" in r["name"] else "M15"
+        ds.save_forward_result(r["name"], tf, r)
+
+    # Save JSON snapshot
     os.makedirs("data", exist_ok=True)
     out = "data/health_report.json"
     with open(out, "w") as f:

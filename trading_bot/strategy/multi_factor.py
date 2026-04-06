@@ -396,3 +396,13 @@ MF_M15_ULTRA_FAST = MultiFactorConfig(
     cooldown_bars=8,
     min_bars=60,
 )
+
+# AUTO-TUNED by agent — 2026-04-07 (Sharpe 7.59, DD 11.1%, Return +59.0%)
+MF_H1_BEST_AUTOTUNED = MultiFactorConfig(
+    lots=0.05, max_positions=2,
+    entry_threshold=0.6,
+    atr_sl_multiplier=2.5,
+    atr_tp_multiplier=5.0,
+    cooldown_bars=8,
+    min_bars=60,
+)
