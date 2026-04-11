@@ -1,9 +1,24 @@
-#!/usr/bin/env python3
-"""
-Live Paper Trading Monitor — SMC + AI + Multi-Factor (3 strategies)
-Fetches real-time XAU price, runs strategies, logs signals + Telegram alerts.
-Cron: */15 * * * *
-"""
+from trading_bot.core.agent_decision import TradingAgent
+
+class LiveMonitor:
+    def __init__(self):
+        self.agent = TradingAgent()
+        self.current_state = "idling"
+
+    def run_cycle(self):
+        """One cycle of checking technicals + confluence."""
+        # Assume technical_signal is fetched here
+        tech_sig = "NEUTRAL" 
+        
+        # Confluence Check with the AI Agent
+        decision = self.agent.analyze_situation(technical_signal=tech_sig)
+        
+        if "STRONG" in decision['final_decision']:
+            print(f"🔥 EXECUTION: Sending Order based on {decision['final_decision']}")
+            # Link to Trading Engine execution here
+        
+        return decision
+
 
 import os
 import sys
