@@ -62,6 +62,21 @@ class TelegramBot:
                     report = self.agent.generate_report(analysis)
                     self.send_message(report)
                 
+                elif text == "/trades":
+                    try:
+                        with open("data/paper_trades.jsonl", "r") as f:
+                            lines = f.readlines()[-5:] # Show last 5 trades
+                            if not lines:
+                                self.send_message("No trades recorded yet.")
+                            else:
+                                msg = "📜 *Last 5 Paper Trades:*\n"
+                                for line in lines:
+                                    t = json.loads(line)
+                                    msg += f"• {t['timestamp'][:16]} | {t['side']} @ {t['price']}\n"
+                                self.send_message(msg)
+                    except Exception as e:
+                        self.send_message(f"Error reading trades: {e}")
+                
                 elif text == "/status":
                     status = "✅ RUNNING" if self.is_running else "⏸️ PAUSED"
                     self.send_message(f"Bot Status: *{status}*\nUptime: Normal\nHealth: 100%")
